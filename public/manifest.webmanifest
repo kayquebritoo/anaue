@@ -1,0 +1,17 @@
+{
+  "name": "Anauê Amazônia",
+  "short_name": "Anauê",
+  "description": "Sistema de gestão e reservas do Anauê Amazônia.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c1a0a",
+  "theme_color": "#304d25",
+  "icons": [
+    {
+      "src": "/images/logo/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

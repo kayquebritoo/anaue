@@ -1,0 +1,101 @@
+[
+  {
+    "id": "exp-001",
+    "slug": "banho-de-argila",
+    "name": "Banho de Argila",
+    "category": "bem-estar",
+    "shortDescription": "Rituais ancestrais de limpeza e revitalização com argila branca da Amazônia, direto na beira do rio.",
+    "longDescription": "O Banho de Argila é uma das experiências mais autênticas do Anauê. Usada há séculos por povos indígenas amazônicos, a argila branca extraída das margens do rio purifica a pele, reduz inflamações e proporciona uma sensação de renovação profunda. A sessão é conduzida por nossa equipe de bem-estar à beira d'água, em completa harmonia com a floresta.",
+    "price": 180,
+    "priceType": "per_person",
+    "duration": "60 min",
+    "imageUrl": "/images/experiencias/argila/_DSC7082.webp",
+    "gallery_images": [
+      "/images/experiencias/argila/_DSC7082.webp",
+      "/images/experiencias/argila/_DSC7084.webp",
+      "/images/experiencias/argila/_DSC7118.webp",
+      "/images/experiencias/argila/_DSC7119.webp",
+      "/images/experiencias/argila/_DSC7168.webp",
+      "/images/experiencias/argila/_DSC7170.webp"
+    ],
+    "isPopular": true
+  },
+  {
+    "id": "exp-002",
+    "slug": "banhos-de-ervas",
+    "name": "Banhos de Ervas",
+    "category": "bem-estar",
+    "shortDescription": "Imersão terapêutica com ervas aromáticas amazônicas colhidas no próprio sítio para relaxamento e cura.",
+    "longDescription": "Os Banhos de Ervas combinam o conhecimento ancestral da fitoterapia amazônica com uma experiência de spa contemporânea. As ervas — capim-limão, erva-cidreira, alecrim-de-caboclo e priprioca — são colhidas fresquinhas do jardim do Anauê e infusionadas na água morna de um ofurô de madeira rodeado pela floresta. Um ritual de alma.",
+    "price": 220,
+    "priceType": "per_person",
+    "duration": "75 min",
+    "imageUrl": "/images/experiencias/banhos-de-ervas/_DSC7003.webp",
+    "gallery_images": [
+      "/images/experiencias/banhos-de-ervas/_DSC7003.webp",
+      "/images/experiencias/banhos-de-ervas/_DSC7005.webp",
+      "/images/experiencias/banhos-de-ervas/_DSC7007.webp",
+      "/images/experiencias/banhos-de-ervas/_DSC7012.webp",
+      "/images/experiencias/banhos-de-ervas/_DSC7016.webp",
+      "/images/experiencias/banhos-de-ervas/_DSC7022.webp"
+    ],
+    "isPopular": false
+  },
+  {
+    "id": "exp-003",
+    "slug": "esfoliacao",
+    "name": "Esfoliação",
+    "category": "bem-estar",
+    "shortDescription": "Esfoliação corporal com castanha-do-pará e mel silvestre para pele renovada e radiante.",
+    "longDescription": "Nossa Esfoliação Amazônica utiliza uma mistura exclusiva de cascas de castanha-do-pará moídas, mel silvestre coletado localmente e óleos essenciais de copaíba. O tratamento remove células mortas, hidrata profundamente e deixa a pele com um brilho natural incomparável. Uma receita da floresta transformada em ritual de beleza.",
+    "price": 160,
+    "priceType": "per_person",
+    "duration": "50 min",
+    "imageUrl": "/images/experiencias/esfoliacao/_DSC7097.webp",
+    "gallery_images": [
+      "/images/experiencias/esfoliacao/_DSC7097.webp",
+      "/images/experiencias/esfoliacao/_DSC7099.webp",
+      "/images/experiencias/esfoliacao/_DSC7100.webp"
+    ],
+    "isPopular": false
+  },
+  {
+    "id": "exp-004",
+    "slug": "massagens",
+    "name": "Massagens",
+    "category": "bem-estar",
+    "shortDescription": "Massagens terapêuticas com óleos vegetais amazônicos para relaxamento profundo do corpo e mente.",
+    "longDescription": "Nossas Massagens Amazônicas são realizadas com óleos vegetais de andiroba, murumuru e buriti — extraídos de frutos da floresta e conhecidos por suas propriedades anti-inflamatórias e revitalizantes. Cada sessão é personalizada: relaxante, desportiva ou pedras quentes. O som da floresta ao redor completa a experiência.",
+    "price": 280,
+    "priceType": "per_person",
+    "duration": "90 min",
+    "imageUrl": "/images/experiencias/massagem/_DSC7105.webp",
+    "gallery_images": [
+      "/images/experiencias/massagem/_DSC7105.webp",
+      "/images/experiencias/massagem/_DSC7107.webp",
+      "/images/experiencias/massagem/_DSC7109.webp",
+      "/images/experiencias/massagem/_DSC7110.webp",
+      "/images/experiencias/massagem/_DSC7134.webp",
+      "/images/experiencias/massagem/_DSC7137.webp"
+    ],
+    "isPopular": true
+  },
+  {
+    "id": "exp-005",
+    "slug": "passeios",
+    "name": "Passeios",
+    "category": "aventura",
+    "shortDescription": "Trilhas guiadas, canoas no igarapé e observação de fauna silvestre com guias especializados da região.",
+    "longDescription": "Os Passeios do Anauê revelam a Amazônia de dentro para fora. Escolha entre a trilha noturna de observação de fauna, o passeio de canoa pelo igarapé ao amanhecer ou a expedição de avistamento de botos. Todos os passeios são conduzidos por guias nativos com profundo conhecimento da floresta, garantindo segurança e uma experiência autêntica e inesquecível.",
+    "price": 350,
+    "priceType": "per_person",
+    "duration": "120 min",
+    "imageUrl": "/images/experiencias/passeios/_DSC7045.webp",
+    "gallery_images": [
+      "/images/experiencias/passeios/_DSC7045.webp",
+      "/images/experiencias/passeios/_DSC7046.webp",
+      "/images/experiencias/passeios/_DSC7050.webp"
+    ],
+    "isPopular": true
+  }
+]

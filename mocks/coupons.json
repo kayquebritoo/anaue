@@ -1,0 +1,42 @@
+[
+  {
+    "id": "cpn-001",
+    "code": "ANAUENATUREZA",
+    "discountType": "percentage",
+    "discountValue": 10,
+    "minSpend": 500,
+    "expiresAt": "2026-12-31T23:59:59Z",
+    "isActive": true,
+    "createdAt": "2025-01-15T10:00:00Z"
+  },
+  {
+    "id": "cpn-002",
+    "code": "AMAZONIA100",
+    "discountType": "fixed",
+    "discountValue": 100,
+    "minSpend": 800,
+    "expiresAt": "2026-09-30T23:59:59Z",
+    "isActive": true,
+    "createdAt": "2025-03-20T14:30:00Z"
+  },
+  {
+    "id": "cpn-003",
+    "code": "BEMVINDO15",
+    "discountType": "percentage",
+    "discountValue": 15,
+    "minSpend": 0,
+    "expiresAt": "2026-12-31T23:59:59Z",
+    "isActive": true,
+    "createdAt": "2025-06-01T08:00:00Z"
+  },
+  {
+    "id": "cpn-004",
+    "code": "PROMO2025",
+    "discountType": "fixed",
+    "discountValue": 50,
+    "minSpend": 300,
+    "expiresAt": "2025-12-31T23:59:59Z",
+    "isActive": false,
+    "createdAt": "2025-01-01T00:00:00Z"
+  }
+]

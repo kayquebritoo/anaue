@@ -1,26 +1,173 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ============================================================
+   Anauê Amazônia — Design System Global
+   Paleta: Floresta Amazônica + Dourado Terra + Água Negra
+   ============================================================ */
+
+@theme {
+  /* ─── Paleta Amazônica ─── */
+  --color-forest-50: #f0f9f1;
+  --color-forest-100: #dcf0de;
+  --color-forest-200: #bbe1be;
+  --color-forest-300: #8ec994;
+  --color-forest-400: #5da864;
+  --color-forest-500: #3a8c42;
+  --color-forest-600: #2b7032;
+  --color-forest-700: #245929;
+  --color-forest-800: #1f4723;
+  --color-forest-900: #1a3b1e;
+  --color-forest-950: #0d1f10;
+
+  /* ─── Dourado Terra ─── */
+  --color-gold-50: #fdf9ec;
+  --color-gold-100: #faf0c9;
+  --color-gold-200: #f5e08f;
+  --color-gold-300: #efc84e;
+  --color-gold-400: #e8b22a;
+  --color-gold-500: #d49319;
+  --color-gold-600: #b97114;
+  --color-gold-700: #955015;
+  --color-gold-800: #7b3f18;
+  --color-gold-900: #673518;
+  --color-gold-950: #3c1a09;
+
+  /* ─── Água Negra (Rio Negro) ─── */
+  --color-agua-50: #eff8ff;
+  --color-agua-100: #dbeffe;
+  --color-agua-200: #b9e0fd;
+  --color-agua-300: #7cc8fb;
+  --color-agua-400: #37aaf5;
+  --color-agua-500: #0d8fe6;
+  --color-agua-600: #0171c3;
+  --color-agua-700: #025a9e;
+  --color-agua-800: #064d83;
+  --color-agua-900: #0b416d;
+  --color-agua-950: #072948;
+
+  /* ─── Tipografia ─── */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-playfair), ui-serif, Georgia, serif;
+
+  /* ─── Border Radius ─── */
+  --radius-4xl: 2rem;
+  --radius-5xl: 2.5rem;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ─── Utilitários Customizados ───────────────────────────────── */
+
+/* Glassmorphism base */
+.glass {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+.glass-dark {
+  background: rgba(13, 31, 16, 0.65);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.glass-gold {
+  background: rgba(228, 178, 42, 0.12);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(228, 178, 42, 0.25);
+}
+
+/* Gradiente Amazônico */
+.gradient-amazon {
+  background: linear-gradient(
+    135deg,
+    #0d1f10 0%,
+    #1a3b1e 40%,
+    #1f4723 70%,
+    #072948 100%
+  );
+}
+
+/* Overlay hero */
+.hero-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(13, 31, 16, 0.25) 0%,
+    rgba(13, 31, 16, 0.15) 30%,
+    rgba(13, 31, 16, 0.55) 70%,
+    rgba(13, 31, 16, 0.95) 100%
+  );
+}
+
+/* Text gradient dourado */
+.text-gradient-gold {
+  background: linear-gradient(135deg, #e8b22a 0%, #fdf9ec 50%, #e8b22a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Text gradient verde */
+.text-gradient-forest {
+  background: linear-gradient(135deg, #5da864 0%, #dcf0de 60%, #3a8c42 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Scrollbar personalizada */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(93, 168, 100, 0.4);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(93, 168, 100, 0.7);
+}
+
+/* Scroll horizontal sem scrollbar visível */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Shine animation para cards */
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255,255,255,0.06) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.5s linear infinite;
+}
+
+/* Pulse verde para indicadores de disponibilidade */
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(93, 168, 100, 0.5); }
+  50% { box-shadow: 0 0 0 8px rgba(93, 168, 100, 0); }
+}
+.pulse-available {
+  animation: pulse-green 2s ease-in-out infinite;
+}
+
+/* Safe area para bottom navigation */
+.pb-safe {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 }

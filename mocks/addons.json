@@ -1,0 +1,46 @@
+[
+  {
+    "id": "addon-001",
+    "name": "Café da Manhã Flutuante no Igarapé",
+    "category": "gastronomia",
+    "shortDescription": "Cesta flutuante com frutas regionais (tucumã, pupunha, cupuaçu), tapiocas na brasa e sucos frescos servidos diretamente no seu deck.",
+    "price": 280,
+    "priceType": "fixed",
+    "duration": "1h30",
+    "imageUrl": "https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?w=800&q=80",
+    "isPopular": true
+  },
+  {
+    "id": "addon-002",
+    "name": "Expedição Fluvial Noturna com Biólogo",
+    "category": "aventura",
+    "shortDescription": "Navegação silenciosa em canoa de alumínio para observação de jacarés, corujas e a vida selvagem noturna sob o céu estrelado.",
+    "price": 350,
+    "priceType": "per_person",
+    "duration": "2h30",
+    "imageUrl": "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800&q=80",
+    "isPopular": true
+  },
+  {
+    "id": "addon-003",
+    "name": "Transfer Fluvial Executivo (Manaus ⇄ Anauê)",
+    "category": "logistica",
+    "shortDescription": "Lancha rápida privativa com ar-condicionado e serviço de bordo saindo da Marina do Davi em Manaus até o trapiche do sítio.",
+    "price": 490,
+    "priceType": "fixed",
+    "duration": "45 min",
+    "imageUrl": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&q=80",
+    "isPopular": false
+  },
+  {
+    "id": "addon-004",
+    "name": "Ritual de Banho de Floresta & Spa com Andiroba",
+    "category": "bem-estar",
+    "shortDescription": "Massagem relaxante com óleos essenciais amazônicos (andiroba e copaíba) ao som do rio, seguida de banho de ervas medicinais.",
+    "price": 320,
+    "priceType": "per_person",
+    "duration": "1h45",
+    "imageUrl": "https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800&q=80",
+    "isPopular": false
+  }
+]

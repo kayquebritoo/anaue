@@ -1,0 +1,38 @@
+[
+  {
+    "roomId": "room-001",
+    "roomName": "Bacurí",
+    "status": "clean",
+    "lastCleanedAt": "2026-08-24T14:30:00Z",
+    "housekeeperName": "Dona Maria",
+    "notes": "Toalhas e amenidades de priprioca repostas",
+    "maintenanceAlert": null
+  },
+  {
+    "roomId": "room-002",
+    "roomName": "Cupuaçu",
+    "status": "cleaning",
+    "lastCleanedAt": "2026-08-24T10:15:00Z",
+    "housekeeperName": "Raimundo",
+    "notes": "Higienização completa e troca de roupa de cama",
+    "maintenanceAlert": null
+  },
+  {
+    "roomId": "room-003",
+    "roomName": "Miri",
+    "status": "dirty",
+    "lastCleanedAt": "2026-08-23T16:00:00Z",
+    "housekeeperName": "Dona Maria",
+    "notes": "Hóspede fez check-out hoje pela manhã. Banheira precisa de higienização especial.",
+    "maintenanceAlert": "Checar vedação do chuveiro"
+  },
+  {
+    "roomId": "room-004",
+    "roomName": "Tucumã",
+    "status": "inspected",
+    "lastCleanedAt": "2026-08-24T16:00:00Z",
+    "housekeeperName": "Cleide",
+    "notes": "Revisado pela governanta geral. Pronto para check-in VIP.",
+    "maintenanceAlert": null
+  }
+]

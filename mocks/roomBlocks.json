@@ -1,0 +1,11 @@
+[
+  {
+    "id": "blk-001",
+    "roomId": "room-003",
+    "startDate": "2026-10-01",
+    "endDate": "2026-10-05",
+    "reason": "maintenance",
+    "notes": "Revisão geral do sistema de ar-condicionado e pintura da varanda externa",
+    "createdAt": "2026-09-01T10:00:00Z"
+  }
+]

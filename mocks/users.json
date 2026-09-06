@@ -1,0 +1,26 @@
+[
+  {
+    "id": "user-001",
+    "name": "Ana Beatriz Ferreira",
+    "email": "ana.beatriz@email.com",
+    "avatarUrl": "https://api.dicebear.com/7.x/avataaars/svg?seed=AnaB",
+    "phone": "+55 92 99001-2345",
+    "createdAt": "2024-03-15T10:30:00Z"
+  },
+  {
+    "id": "user-002",
+    "name": "Rafael Monteiro",
+    "email": "rafael.monteiro@email.com",
+    "avatarUrl": "https://api.dicebear.com/7.x/avataaars/svg?seed=RafaM",
+    "phone": "+55 11 98765-4321",
+    "createdAt": "2024-06-20T14:00:00Z"
+  },
+  {
+    "id": "user-003",
+    "name": "Camila Souza",
+    "email": "camila.souza@email.com",
+    "avatarUrl": null,
+    "phone": null,
+    "createdAt": "2025-01-05T09:15:00Z"
+  }
+]
