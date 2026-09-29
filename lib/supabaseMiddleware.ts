@@ -43,10 +43,12 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const isLoginPage = pathname === '/admin/login';
+  const isResetPasswordPage = pathname.startsWith('/admin/redefinir-senha');
+  const isPublicAdminRoute = isLoginPage || isResetPasswordPage;
   const isAdminRoute = pathname.startsWith('/admin');
 
-  // Se o usuário tentar acessar qualquer rota /admin (exceto login) sem estar autenticado
-  if (isAdminRoute && !isLoginPage && !user) {
+  // Se o usuário tentar acessar qualquer rota /admin (exceto rotas públicas de auth) sem estar autenticado
+  if (isAdminRoute && !isPublicAdminRoute && !user) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = '/admin/login';
     loginUrl.searchParams.set('redirectTo', pathname);

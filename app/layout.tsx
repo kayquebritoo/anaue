@@ -16,8 +16,10 @@ const playfair = Playfair_Display({
   display: 'swap',
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://anaueamazonia.com.br';
+
 export const metadata: Metadata = {
-  metadataBase: new URL('https://pms-five-orpin.vercel.app'),
+  metadataBase: new URL(siteUrl),
   title: 'Anauê Amazônia · Refúgio e Hospedagem',
   description:
     'Viva uma experiência inesquecível na Amazônia. Reserve seu bangalô, chalé ou suíte no Anauê Amazônia, um refúgio ecológico de luxo na floresta.',
@@ -25,15 +27,16 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: '/images/logo/favicon.svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico' },
+      { url: '/favicon.ico', sizes: 'any' },
     ],
+    shortcut: '/favicon.ico',
     apple: '/apple-touch-icon.png',
   },
   manifest: '/manifest.webmanifest',
   openGraph: {
     title: 'Anauê Amazônia',
     description: 'Explore nosso refúgio na Amazônia.',
-    url: 'https://pms-five-orpin.vercel.app',
+    url: siteUrl,
     siteName: 'Anauê Amazônia',
     images: [
       {

@@ -16,10 +16,10 @@ export function AdminLayoutWrapper({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const isLoginPage = pathname === '/admin/login';
+  const isAuthPage = pathname === '/admin/login' || pathname.startsWith('/admin/redefinir-senha');
 
-  // Na página de login, renderiza apenas o formulário em tela cheia
-  if (isLoginPage) {
+  // Nas páginas de autenticação, renderiza apenas o formulário em tela cheia
+  if (isAuthPage) {
     return <>{children}</>;
   }
 

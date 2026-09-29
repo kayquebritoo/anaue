@@ -22,7 +22,7 @@ const SMTP_PASS = process.env.SMTP_PASS;
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
   process.env.APP_URL ||
-  'https://pms-five-orpin.vercel.app';
+  'https://anaueamazonia.com.br';
 
 // ─── HELPERS DE FORMATAÇÃO ──────────────────────────────────
 

@@ -147,7 +147,10 @@ export default function AdminIcalSyncPage() {
     });
   };
 
-  const exportBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://pms-five-orpin.vercel.app';
+  const exportBaseUrl =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : (process.env.NEXT_PUBLIC_APP_URL || 'https://anaueamazonia.com.br');
 
   return (
     <div className="min-h-screen gradient-admin pb-32 md:pb-8">

@@ -13,12 +13,12 @@ export const metadata = {
 };
 
 interface AdminLoginPageProps {
-  searchParams: Promise<{ redirectTo?: string }>;
+  searchParams: Promise<{ redirectTo?: string; error?: string; message?: string }>;
 }
 
 export default async function AdminLoginPage({ searchParams }: AdminLoginPageProps) {
   // Aceita ?redirectTo=/admin/... (injetado pelo middleware), com fallback seguro
-  const { redirectTo } = await searchParams;
+  const { redirectTo, error, message } = await searchParams;
 
   return (
     <main className="relative min-h-screen bg-[#060f0a] text-white flex flex-col items-center justify-center p-5 overflow-hidden">
@@ -29,8 +29,19 @@ export default async function AdminLoginPage({ searchParams }: AdminLoginPagePro
       </div>
 
       {/* Formulário */}
-      <div className="relative z-10 w-full flex justify-center">
-        <LoginForm redirectTo={redirectTo} />
+      <div className="relative z-10 w-full flex flex-col items-center gap-4">
+        {(error === 'recovery_link_expired' || error === 'auth_callback_error') && (
+          <div
+            role="alert"
+            className="w-full max-w-sm rounded-2xl bg-red-500/10 border border-red-500/25 px-4 py-3 text-red-300 text-xs leading-relaxed"
+          >
+            {message ||
+              'Link de recuperação inválido ou expirado. Solicite um novo link abaixo.'}
+          </div>
+        )}
+        <div className="w-full flex justify-center">
+          <LoginForm redirectTo={redirectTo} />
+        </div>
       </div>
 
       {/* Voltar ao site público */}
