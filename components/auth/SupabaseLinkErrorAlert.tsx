@@ -32,6 +32,16 @@ function SupabaseLinkErrorAlertInner() {
   const [isExpiredLink, setIsExpiredLink] = useState(false);
 
   useEffect(() => {
+    // O Supabase pode entregar ?code= na Site URL raiz quando o redirect_to
+    // não era allowlisted no momento do envio. Encaminha para o callback,
+    // que troca o code por sessão e leva para a redefinição de senha.
+    const code = searchParams.get('code');
+    if (code && pathname !== '/auth/callback') {
+      const params = new URLSearchParams(searchParams.toString());
+      if (!params.get('next')) params.set('next', '/admin/redefinir-senha');
+      router.replace(`/auth/callback?${params.toString()}`);
+      return;
+    }
     const queryError = searchParams.get('error');
     const queryCode = searchParams.get('error_code');
     const { code: hashCode } = parseHashError();
@@ -42,7 +52,7 @@ function SupabaseLinkErrorAlertInner() {
       setIsExpiredLink(expired || hasAuthError);
       setVisible(true);
     }
-  }, [searchParams]);
+  }, [searchParams, pathname, router]);
 
   if (!visible) return null;
 
