@@ -92,7 +92,7 @@ export default async function HomePage() {
       <ExperiencesCarousel experiences={experiences} />
 
       {/* ── Banner imersivo ── */}
-      <section className="relative overflow-hidden mx-5 md:mx-8 max-w-7xl md:mx-auto mb-16 md:mb-24 rounded-4xl">
+      <section className="relative overflow-hidden mx-5 md:mx-8 xl:mx-auto max-w-7xl mb-16 md:mb-24 rounded-4xl">
         <div className="glass rounded-4xl p-8 md:p-16 text-center relative overflow-hidden">
           {/* Decoração de fundo */}
           <div className="absolute inset-0 pointer-events-none">

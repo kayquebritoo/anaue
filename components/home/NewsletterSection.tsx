@@ -31,7 +31,7 @@ export function NewsletterSection() {
   return (
     <section
       aria-label="Newsletter e WhatsApp"
-      className="relative overflow-hidden mx-5 md:mx-8 max-w-7xl md:mx-auto mb-16 md:mb-24 rounded-4xl"
+      className="relative overflow-hidden mx-5 md:mx-8 xl:mx-auto max-w-7xl mb-16 md:mb-24 rounded-4xl"
     >
       {/* ── Imagem de Fundo ── */}
       <div className="absolute inset-0">

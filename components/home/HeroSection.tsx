@@ -66,7 +66,13 @@ export function HeroSection({ searchBar }: HeroSectionProps) {
   }, []);
 
   return (
-    <section className="relative w-full h-[100dvh] min-h-[100dvh] flex flex-col items-center justify-end overflow-hidden">
+    // min-h (não h fixo): o conteúdo cresce em telas pequenas sem ser cortado.
+    // 100svh: altura estável com a barra do navegador mobile.
+    // justify-center: conteúdo centralizado verticalmente (mobile + desktop).
+    // overflow-x-clip: o slider de fundo já se contém sozinho; aqui não
+    // podemos usar overflow-hidden pois ele guilhotinaria os dropdowns
+    // do SearchBar que transbordam para baixo.
+    <section className="relative w-full min-h-[100svh] flex flex-col items-center justify-center overflow-x-clip">
       {/* ── Slider de Fundo com Transição Cruzada (Overflow contido apenas no fundo) ── */}
       <div className="absolute inset-0 z-0 overflow-hidden">
         <AnimatePresence mode="popLayout">
@@ -117,8 +123,8 @@ export function HeroSection({ searchBar }: HeroSectionProps) {
         ))}
       </div>
 
-      {/* ── Conteúdo principal (sem guilhotina de overflow) ── */}
-      <div className="relative z-20 w-full max-w-5xl mx-auto px-5 pb-10 flex flex-col items-center text-center gap-6">
+      {/* ── Conteúdo principal centralizado (respiro p/ navbar fixa e base) ── */}
+      <div className="relative z-20 w-full max-w-5xl mx-auto px-5 sm:px-8 pt-24 pb-16 md:pt-28 md:pb-20 my-auto flex flex-col items-center text-center gap-5 md:gap-6">
         {/* Localização */}
         <motion.div
           variants={fadeIn}
@@ -149,7 +155,7 @@ export function HeroSection({ searchBar }: HeroSectionProps) {
           </motion.p>
           <motion.h1
             variants={fadeUp}
-            className="font-serif font-bold text-5xl md:text-7xl lg:text-8xl leading-none tracking-tight"
+            className="font-serif font-bold text-5xl sm:text-6xl md:text-7xl lg:text-8xl leading-[1.02] tracking-tight text-balance"
           >
             <span className="text-gradient-gold">Anauê</span>
             <br />
@@ -157,7 +163,7 @@ export function HeroSection({ searchBar }: HeroSectionProps) {
           </motion.h1>
           <motion.p
             variants={fadeUp}
-            className="text-white/65 text-base md:text-lg max-w-lg mt-2 leading-relaxed"
+            className="text-white/65 text-base md:text-lg max-w-lg mt-2 leading-relaxed text-balance"
           >
             Um refúgio ecológico de luxo no coração da floresta.
             <br className="hidden md:block" />
@@ -198,9 +204,9 @@ export function HeroSection({ searchBar }: HeroSectionProps) {
         </motion.div>
       </div>
 
-      {/* ── Seta de scroll ── */}
+      {/* ── Seta de scroll (só desktop: no mobile polui e colide com a busca) ── */}
       <motion.div
-        className="absolute bottom-36 md:bottom-8 left-1/2 -translate-x-1/2 z-20 pointer-events-none"
+        className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none hidden md:block"
         animate={{ y: [0, 8, 0] }}
         transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
       >

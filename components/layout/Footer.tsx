@@ -18,8 +18,8 @@ export function Footer() {
   }
 
   return (
-    <footer className="relative z-10" aria-label="Rodapé">
-      <div className="max-w-7xl mx-auto px-5 md:px-8 pb-24 md:pb-8 flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-4">
+    <footer className="relative z-10 border-t border-white/8" aria-label="Rodapé">
+      <div className="max-w-7xl mx-auto px-5 md:px-8 pt-8 md:pt-10 pb-24 md:pb-8 flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-4">
         <p className="text-white/30 text-xs tracking-wide">
           © {new Date().getFullYear()} Anauê Amazônia — Refúgio Ecológico
         </p>
