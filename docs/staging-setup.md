@@ -1,12 +1,15 @@
 # Staging do Anauê — o que existe hoje e como criar
 
+Decisão e comparação de alternativas (Docker local, branching, projeto separado): `docs/infra-decision.md` §3.
+Escolhido: **projeto Supabase separado no plano Free (US$ 0)** + Preview da Vercel apontando para ele.
+
 ## Estado verificado (2026-11-05)
 
 | Item | Situação |
 |---|---|
 | Supabase | 1 projeto ativo: **`pms`** (`yjtbwxjxhfkxrmdurgdu`, us-west-2) = **produção** (é o do `.env.local`). Outros 2 projetos da organização estão pausados e não são do Anauê. **Não há staging nem branches.** |
 | Vercel | Projeto `pms` (time `kayquebritoos-projects`). `main` publica em Produção com sucesso. **Os 3 deploys de preview do PR #1 falharam.** |
-| Causa provável do preview | Reproduzido localmente: sem variáveis do Supabase, o build falha — **inclusive o `main`** (`/admin/redefinir-senha` exige URL/chave). Indica que o ambiente **Preview** da Vercel não tem as variáveis do Supabase. A partir do commit 2 o build também recusa, por design, gerar o site com dados fictícios. Confirmar nos logs (passo 0). |
+| Causa provável do preview | Reproduzido localmente: sem variáveis do Supabase, o build falha — **inclusive o `main`** (`/admin/redefinir-senha` exige URL/chave). Indica que o ambiente **Preview** da Vercel não tem as variáveis do Supabase. A partir do commit 2 o build também recusa, por design, gerar o site com dados fictícios. Confirmar nos logs (passo 0): a partir do commit com `scripts/check-env.mjs`, o início do log lista as variáveis ausentes (só nomes). |
 
 > ⚠️ Se as variáveis de Preview existirem e apontarem para **produção**, todo
 > preview (inclusive de testes) leria e gravaria no banco real. O Preview deve

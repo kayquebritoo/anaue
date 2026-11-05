@@ -11,6 +11,7 @@ Pago). 🤖 = pode ser executado/assistido pelo agente sem tocar produção.
 ---
 
 ## Documentos de apoio
+- `docs/infra-decision.md` — causa do Preview, escolha do staging, custos, Vercel+Supabase × Hostinger.
 - `docs/staging-setup.md` — estado atual (não há staging), criação do staging com cliques exatos, Preview → staging.
 - `docs/pix-real-test.md` — PIX: sandbox e teste real simbólico com estorno.
 - `docs/payment-gateways.md` — camada de gateways (PagBank preparado, não integrado).
@@ -20,7 +21,7 @@ Pago). 🤖 = pode ser executado/assistido pelo agente sem tocar produção.
 
 ## 0. Pré-condições
 - [ ] PR #1 revisado e aprovado (👤).
-- [ ] `npm test` verde (93 testes) no commit a implantar (🤖).
+- [ ] `npm test` verde (94 testes) no commit a implantar (🤖).
 - [ ] Preview do PR com build verde na Vercel (hoje falha por falta de variáveis no Preview — `docs/staging-setup.md`, passos 0 e 5).
 - [ ] `npm run test:staging` verde contra o staging (🤖 após o staging existir).
 - [ ] Fases B e C de `docs/pix-real-test.md` concluídas.

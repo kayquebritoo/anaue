@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/check-env.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "test:pms": "tsx scripts/test-suite.ts",
@@ -12,7 +12,8 @@
     "test:security": "tsx --test scripts/test-security.ts",
     "test": "tsx --test scripts/test-booking-integrity.ts scripts/test-security.ts scripts/test-pricing.ts",
     "test:pricing": "tsx --test scripts/test-pricing.ts",
-    "test:staging": "tsx --test scripts/test-staging.ts"
+    "test:staging": "tsx --test scripts/test-staging.ts",
+    "check-env": "node scripts/check-env.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

@@ -380,7 +380,7 @@ describe('Confirmação de pagamento confere o valor pago', () => {
   });
 
   test('pagamento não aprovado, moeda diferente, referência forjada ou inexistente', async () => {
-    for (const status of ['pending', 'in_process', 'rejected', 'cancelled', 'refunded', 'charged_back']) {
+    for (const status of ['pending', 'in_process', 'rejected', 'cancelled']) {
       assert.equal((await conf.confirmBookingFromPayment(pay({ status }), memoryRepo(pending()).repo, silentLogger)).outcome, 'not_approved', status);
     }
     assert.equal((await conf.confirmBookingFromPayment(pay({ currency_id: 'USD' }), memoryRepo(pending()).repo, silentLogger)).outcome, 'currency_mismatch');
@@ -388,6 +388,22 @@ describe('Confirmação de pagamento confere o valor pago', () => {
       assert.equal((await conf.confirmBookingFromPayment(pay({ external_reference: ref }), memoryRepo(pending()).repo, silentLogger)).outcome, 'invalid_reference', String(ref));
     }
     assert.equal((await conf.confirmBookingFromPayment(pay({ external_reference: 'res-zzzz9999' }), memoryRepo(pending()).repo, silentLogger)).outcome, 'booking_not_found');
+  });
+
+  test('estorno ou chargeback: não confirma, não cancela sozinho e gera alerta', async () => {
+    for (const status of ['refunded', 'charged_back']) {
+      const confirmed = memoryRepo({ ...pending(), status: 'confirmed' });
+      const alerts: string[] = [];
+      const r = await conf.confirmBookingFromPayment(pay({ status }), confirmed.repo, { error: (m: string) => alerts.push(m), warn: () => {} });
+      assert.equal(r.outcome, 'payment_reversed', status);
+      assert.equal(confirmed.state.booking!.status, 'confirmed', 'não cancela automaticamente');
+      assert.equal(alerts.length, 1);
+      assert.match(alerts[0], /ESTORNO\/CHARGEBACK/);
+
+      const p = memoryRepo(pending());
+      assert.equal((await conf.confirmBookingFromPayment(pay({ status }), p.repo, silentLogger)).outcome, 'payment_reversed');
+      assert.equal(p.state.booking!.status, 'pending', 'estorno nunca confirma');
+    }
   });
 
   test('reserva cancelada não é reativada por pagamento; confirmada é idempotente', async () => {

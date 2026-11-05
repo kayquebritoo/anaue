@@ -46,7 +46,8 @@ export type ConfirmationOutcome =
   | 'booking_not_found'
   | 'currency_mismatch'
   | 'amount_mismatch'
-  | 'not_pending';
+  | 'not_pending'
+  | 'payment_reversed';
 
 export interface ConfirmationResult {
   outcome: ConfirmationOutcome;
@@ -60,6 +61,21 @@ export async function confirmBookingFromPayment(
   repo: ConfirmationRepository,
   logger: Pick<Console, 'error' | 'warn'> = console
 ): Promise<ConfirmationResult> {
+  // Estorno/chargeback: não confirma nem cancela sozinho (hóspede pode estar
+  // hospedado); registra alerta para a equipe decidir.
+  if (payment.status === 'refunded' || payment.status === 'charged_back') {
+    const reversedId = normalizeBookingId(payment.external_reference);
+    if (!reversedId) return { outcome: 'invalid_reference' };
+    const reversed = await repo.getBooking(reversedId);
+    if (!reversed) return { outcome: 'booking_not_found', bookingId: reversedId };
+    if (reversed.status !== 'cancelled') {
+      logger.error(
+        `[Pagamento] ESTORNO/CHARGEBACK — pagamento ${payment.id} (${payment.status}) da reserva ${reversedId}, que está ${reversed.status}. Avaliar cancelamento.`
+      );
+    }
+    return { outcome: 'payment_reversed', bookingId: reversedId, paid: Number(payment.transaction_amount), due: reversed.totalPrice };
+  }
+
   if (payment.status !== 'approved') return { outcome: 'not_approved' };
 
   const bookingId = normalizeBookingId(payment.external_reference);

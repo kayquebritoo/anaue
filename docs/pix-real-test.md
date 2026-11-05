@@ -10,7 +10,7 @@ Nada aqui deve ser executado sem a sua autorização explícita. 👤 = você.
 
 | Fase | Dinheiro | Banco | O que prova |
 |---|---|---|---|
-| A. Automatizada (já feita) | não | PGlite / mock | regras de preço, adulteração, divergência, idempotência (`npm run test:pricing`, 30 testes) |
+| A. Automatizada (já feita) | não | PGlite / mock | regras de preço, adulteração, divergência, idempotência (`npm run test:pricing`, 31 testes) |
 | B. Sandbox MP | não | staging | credenciais, criação do PIX, QR com valor do servidor, assinatura do webhook |
 | C. PIX real simbólico | **R$ 1–2, estornado** | staging | pagamento real → webhook → reserva confirmada no staging |
 
@@ -70,7 +70,8 @@ remover a credencial do Preview logo depois.
    - Staging → Table Editor → `bookings`: reserva `confirmed`, `total_price = 1.90`.
    - MP → **Atividade**: pagamento aprovado de R$ 1,90 com `external_reference` igual ao ID da reserva.
 6. 👤 **Estornar**: mercadopago.com.br → **Atividade** → abrir o pagamento → **Devolver dinheiro** → total.
-   Reenviar o webhook (ou aguardar): a reserva **não** muda (status `refunded` não confirma).
+   O webhook do estorno chega com `outcome: payment_reversed` e o log registra
+   `ESTORNO/CHARGEBACK` — a reserva **não** é confirmada nem cancelada sozinha; a equipe cancela no painel.
 7. 👤 **Limpeza obrigatória** na Vercel (Preview): remover `MP_ACCESS_TOKEN` de produção e
    `MP_NOTIFICATION_URL` (ou voltar ao token `TEST-…`). No staging: `DELETE FROM rooms WHERE id = 'room-teste-pix';`
    (após cancelar/apagar a reserva de teste).
