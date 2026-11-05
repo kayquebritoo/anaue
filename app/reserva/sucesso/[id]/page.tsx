@@ -4,7 +4,7 @@
 // app/reserva/sucesso/[id]/page.tsx
 // Página de Confirmação de Reserva — Client Component
 // Busca a reserva no sessionStorage após hidratação
-// Suporte a exibição de QR Code PIX via query params
+// QR Code PIX buscado no servidor (nunca de parâmetros da URL)
 // ============================================================
 
 import { useEffect, useState } from 'react';
@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
 import { getBookingByIdAction } from '@/app/actions/booking';
+import { getPixPaymentForBookingAction, type PixDisplayResult } from '@/app/actions/payment';
 import { SuccessCelebration } from '@/components/confirmation/SuccessCelebration';
 import { ReservationVoucher } from '@/components/confirmation/ReservationVoucher';
 import { PixPaymentBox } from '@/components/confirmation/PixPaymentBox';
@@ -31,13 +32,12 @@ export default function ReservationSuccessPage() {
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [notFound, setNotFound] = useState(false);
 
-  // Dados do PIX vindos dos query params (passados pelo checkout)
-  const pixPaymentId = searchParams.get('pix_paymentId');
-  const pixQrCode = searchParams.get('pix_qrCode');
-  const pixCopiaECola = searchParams.get('pix_copiaECola');
-  const pixTicketUrl = searchParams.get('pix_ticketUrl');
-  const pixExpiresAt = searchParams.get('pix_expiresAt');
-  const showPix = searchParams.get('show_pix') === 'true';
+  // Apenas o ID do pagamento vem da URL. QR Code e copia-e-cola são buscados
+  // no servidor (gateway) e conferidos contra a reserva — nunca lidos da URL,
+  // o que permitiria um link no domínio oficial com a chave PIX de terceiros.
+  const pixParam = searchParams.get('pix');
+  const [pix, setPix] = useState<PixDisplayResult | null>(null);
+  const showPix = Boolean(pix?.success && pix.qrCodeBase64 && pix.copiaECola && pix.expiresAt);
 
   useEffect(() => {
     if (!reservationId) {
@@ -53,6 +53,10 @@ export default function ReservationSuccessPage() {
         if (isMounted) {
           if (result.success && result.reservation) {
             setReservation(result.reservation);
+            if (pixParam && result.reservation.status === 'pending') {
+              const pixData = await getPixPaymentForBookingAction(reservationId, Number(pixParam));
+              if (isMounted) setPix(pixData);
+            }
           } else {
             setNotFound(true);
           }
@@ -69,7 +73,7 @@ export default function ReservationSuccessPage() {
     return () => {
       isMounted = false;
     };
-  }, [reservationId]);
+  }, [reservationId, pixParam]);
 
   // ── Estado: Carregando ──
   if (!reservation && !notFound) {
@@ -131,7 +135,11 @@ export default function ReservationSuccessPage() {
         </Link>
 
         <div className="glass rounded-full px-3 py-1 text-xs text-forest-300 font-semibold border border-forest-400/20">
-          {showPix ? 'Aguardando Pagamento ✦' : 'Reserva Confirmada ✦'}
+          {reservation?.status === 'confirmed' || reservation?.status === 'checked_in'
+            ? 'Reserva Confirmada ✦'
+            : showPix
+              ? 'Aguardando Pagamento ✦'
+              : 'Pré-reserva recebida ✦'}
         </div>
       </header>
 
@@ -147,18 +155,18 @@ export default function ReservationSuccessPage() {
         </motion.section>
 
         {/* ── PIX QR Code (se aplicável) ── */}
-        {showPix && pixPaymentId && pixQrCode && pixCopiaECola && pixExpiresAt && (
+        {showPix && pix && (
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
           >
             <PixPaymentBox
-              paymentId={parseInt(pixPaymentId, 10)}
-              qrCodeBase64={pixQrCode}
-              copiaECola={pixCopiaECola}
-              ticketUrl={pixTicketUrl || undefined}
-              expiresAt={pixExpiresAt}
+              paymentId={pix.paymentId!}
+              qrCodeBase64={pix.qrCodeBase64!}
+              copiaECola={pix.copiaECola!}
+              ticketUrl={pix.ticketUrl || undefined}
+              expiresAt={pix.expiresAt!}
               bookingId={reservationId}
             />
           </motion.section>

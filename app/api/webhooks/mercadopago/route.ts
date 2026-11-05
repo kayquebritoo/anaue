@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPaymentStatus, isPaymentApproved } from '@/lib/mercadopago';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import * as mockData from '@/lib/mockData';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import { isMockDataAllowed } from '@/lib/dataMode';
+import { mercadoPagoGateway } from '@/lib/payments/mercadopago';
+import { confirmBookingFromPayment } from '@/lib/paymentConfirmation';
+import { sendPaymentConfirmedEmail } from '@/lib/bookingNotifications';
+import { supabaseConfirmationRepository, mockConfirmationRepository } from '@/lib/paymentConfirmationRepo';
 
 /**
  * POST /api/webhooks/mercadopago
@@ -22,23 +25,15 @@ export async function POST(request: NextRequest) {
     const url = new URL(request.url);
 
     // ── Verificação de Assinatura HMAC-SHA256 do Mercado Pago ──────────────
-    // Protege contra replay attacks e notificações forjadas.
-    // Configurar MP_WEBHOOK_SECRET no painel do Mercado Pago → Webhooks.
-    const mpSecret = process.env.MP_WEBHOOK_SECRET;
-    const xSignature = request.headers.get('x-signature');
-    const xRequestId = request.headers.get('x-request-id');
-
-    if (mpSecret && xSignature) {
-      const dataId = url.searchParams.get('data.id') || '';
-      const manifest = `id:${dataId};request-id:${xRequestId};`;
-      const { createHmac } = await import('crypto');
-      const expectedHash = createHmac('sha256', mpSecret).update(manifest).digest('hex');
-      // Header formato: "ts=1234567890,v1=HASH_HEX"
-      const v1 = xSignature.split(',').find((p) => p.startsWith('v1='))?.slice(3);
-      if (!v1 || v1 !== expectedHash) {
-        console.warn('[Webhook MP] Assinatura inválida — possível replay attack.');
-        return NextResponse.json({ error: 'Assinatura inválida.' }, { status: 401 });
-      }
+    // Com MP_WEBHOOK_SECRET configurado, a assinatura é obrigatória (antes,
+    // omitir o header x-signature pulava a verificação).
+    const signature = mercadoPagoGateway.verifyWebhook({ headers: request.headers, url });
+    if (signature === 'invalid') {
+      console.warn('[Webhook MP] Assinatura ausente ou inválida.');
+      return NextResponse.json({ error: 'Assinatura inválida.' }, { status: 401 });
+    }
+    if (signature === 'not_configured' && process.env.MP_ACCESS_TOKEN) {
+      console.warn('[Webhook MP] MP_WEBHOOK_SECRET não configurado — notificações não são autenticadas.');
     }
     // ── Fim verificação HMAC ───────────────────────────────────────────────
 
@@ -76,7 +71,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Consultar status real do pagamento no Mercado Pago
-    const payment = await getPaymentStatus(paymentId);
+    const payment = await mercadoPagoGateway.getPayment(String(paymentId));
 
     if (!payment || !payment.external_reference) {
       return NextResponse.json(
@@ -85,34 +80,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const bookingId = payment.external_reference;
+    // Confirma somente se aprovado E valor pago == total calculado no servidor
+    const repo = isSupabaseConfigured()
+      ? supabaseConfirmationRepository
+      : isMockDataAllowed()
+        ? mockConfirmationRepository
+        : null;
+    if (!repo) {
+      return NextResponse.json({ error: 'Banco indisponível.' }, { status: 503 });
+    }
+    const result = await confirmBookingFromPayment(payment, repo);
+    const bookingId = result.bookingId ?? null;
 
-    // Se pagamento aprovado, confirmar reserva
-    if (isPaymentApproved(payment.status)) {
-      if (isSupabaseConfigured()) {
-        // Atualizar status do booking para 'confirmed'
-        const { error } = await supabase
-          .from('bookings')
-          .update({ status: 'confirmed' })
-          .eq('id', bookingId)
-          .eq('status', 'pending');
-
-        if (error) {
-          return NextResponse.json(
-            { error: `Erro ao atualizar reserva: ${error.message}` },
-            { status: 500 }
-          );
-        }
-      } else {
-        // Mock: atualizar localmente
-        mockData.updateReservationStatus(bookingId, 'confirmed');
-      }
+    // E-mail de confirmação só após validação do pagamento no gateway
+    if (result.outcome === 'confirmed' && result.bookingId) {
+      await sendPaymentConfirmedEmail(result.bookingId);
     }
 
+    // Divergências respondem 200 (não adianta o MP reenviar) e ficam no log
+    // para a equipe; erros de banco lançam e respondem 500 (MP reenvia).
     return NextResponse.json({
       received: true,
       paymentId,
       status: payment.status,
+      outcome: result.outcome,
       bookingId,
     });
   } catch (error) {

@@ -144,6 +144,7 @@ export function ManualBookingModal({ isOpen, onClose, onCreated }: ManualBooking
         guestPhone: guestPhone.trim() || undefined,
         paymentMethod,
         selectedAddons: [],
+        channel: 'manual',
         status: initialStatus,
       });
 

@@ -4,47 +4,39 @@
 // app/actions/booking.ts
 // Server Actions para Criação e Consulta Segura de Reservas
 // Trava Anti-Overbooking com Verificação de Concorrência
+//
+// Segurança:
+//  - Server Actions são endpoints públicos. Ações administrativas checam
+//    a sessão da equipe (lib/authz.ts).
+//  - Nenhum filtro PostgREST é montado com entrada do usuário: IDs e
+//    localizadores são validados (lib/queryInput.ts) e usados em .eq().
+//  - Consultas públicas retornam visão reduzida, com contato mascarado.
 // ============================================================
 
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { mapDbBookingToReservation, updateHousekeepingAsync, getRoomByIdAsync } from '@/lib/supabaseData';
 import { sendBookingConfirmationEmail } from '@/lib/email';
+import { isMockDataAllowed } from '@/lib/dataMode';
+import { bookingErrorMessage, classifyDbError } from '@/lib/bookingErrors';
+import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
+import { escapeLikePattern, normalizeBookingCode, normalizeEmail, parseBookingRef } from '@/lib/queryInput';
+import { toPublicReservation } from '@/lib/publicReservation';
+import { serverPricingCatalog } from '@/lib/pricingCatalog';
+import { isOnlineBookingEnabled, ONLINE_BOOKING_DISABLED_MESSAGE } from '@/lib/launchMode';
+import {
+  createBooking,
+  supabaseBookingRepository,
+  mockBookingRepository,
+  type BookingActionResult,
+  type CreateBookingInput,
+} from '@/lib/bookingService';
 import * as mockData from '@/lib/mockData';
-import type { Reservation, ReservationStatus, PaymentMethodType, InvoiceStatus } from '@/types';
-import type { DbBooking } from '@/types/database';
+import type { Reservation, ReservationStatus } from '@/types';
 
-export interface CreateBookingInput {
-  roomId?: string | null;
-  experienceId?: string | null;
-  checkIn: string;
-  checkOut: string;
-  guests: number;
-  totalPrice: number;
-  roomPrice: number;
-  addonsPrice: number;
-  discountPrice: number;
-  specialRequests?: string | null;
-  guestName: string;
-  guestEmail?: string;
-  guestPhone?: string;
-  guestDocument?: string | null;
-  taxId?: string | null;
-  companyName?: string | null;
-  billingAddress?: string | null;
-  invoiceStatus?: InvoiceStatus;
-  paymentMethod: PaymentMethodType;
-  selectedAddons?: { id: string; name: string; price: number }[];
-  isExperienceMode?: boolean;
-  status?: ReservationStatus;
-}
+export type { BookingActionResult, CreateBookingInput } from '@/lib/bookingService';
 
-export interface BookingActionResult {
-  success: boolean;
-  bookingId?: string;
-  bookingCode?: string;
-  reservation?: Reservation;
-  error?: string;
-}
+const VALID_STATUSES: ReservationStatus[] = ['pending', 'confirmed', 'checked_in', 'checked_out', 'cancelled'];
+const NOT_FOUND_LOOKUP = 'Nenhuma reserva encontrada. Verifique o código (AN-XXXX) ou o e-mail informado.';
 
 async function safeRevalidatePaths(paths: string[]) {
   try {
@@ -58,335 +50,149 @@ async function safeRevalidatePaths(paths: string[]) {
 }
 
 /**
- * Criação segura de reserva com verificação anti-overbooking
+ * Criação segura de reserva com verificação anti-overbooking.
+ * A garantia contra concorrência fica no banco (constraint + triggers);
+ * ver supabase/migrations/20261105000000_booking_integrity.sql.
+ *
+ * Público (checkout). Apenas a equipe pode criar reservas com status
+ * diferente de 'pending' (ex.: reserva manual já confirmada).
  */
 export async function createBookingAction(
   payload: CreateBookingInput
 ): Promise<BookingActionResult> {
   try {
-    // ── 1. Validação básica no servidor ──
-    if (!payload.guestName?.trim()) {
-      return { success: false, error: 'Nome completo é obrigatório.' };
-    }
-
-    // Tratamento de e-mail: se não informado (ex: reserva rápida via WhatsApp), gera e-mail de referência
-    let sanitizedEmail = payload.guestEmail?.trim() || '';
-    if (!sanitizedEmail || !sanitizedEmail.includes('@')) {
-      const sanitizedPhone = (payload.guestPhone || '').replace(/\D/g, '');
-      const sanitizedName = payload.guestName.trim().toLowerCase().replace(/[^a-z0-9]/g, '.');
-      sanitizedEmail = sanitizedPhone
-        ? `wpp.${sanitizedPhone}@guest.anaue.com.br`
-        : `${sanitizedName || 'hospede'}@manual.anaue.com.br`;
-    }
-
-    if (!payload.checkIn || !payload.checkOut) {
-      return { success: false, error: 'Período de check-in e check-out é obrigatório.' };
-    }
-
-    const checkInDate = new Date(payload.checkIn);
-    const checkOutDate = new Date(payload.checkOut);
-
-    if (checkOutDate <= checkInDate) {
-      return { success: false, error: 'A data de check-out deve ser posterior à data de check-in.' };
-    }
-
-    const isRoomBooking = !payload.isExperienceMode && payload.roomId && !payload.roomId.startsWith('exp-booking-');
-
-    // ── 2. TRAVA DE SEGURANÇA: Prevenção Anti-Overbooking ──
-    if (isRoomBooking) {
-      if (isSupabaseConfigured()) {
-        // Consultar o Supabase procurando reservas ativas com sobreposição de datas:
-        // check_in_date < payload.checkOut AND check_out_date > payload.checkIn
-        const { data: overlappingBookings, error: checkError } = await supabase
-          .from('bookings')
-          .select('id, booking_code, check_in_date, check_out_date, status')
-          .eq('room_id', payload.roomId!)
-          .neq('status', 'cancelled')
-          .lt('check_in_date', payload.checkOut)
-          .gt('check_out_date', payload.checkIn);
-
-        if (checkError) {
-          console.error('[Anti-Overbooking] Erro ao consultar disponibilidade:', checkError);
-        } else if (overlappingBookings && overlappingBookings.length > 0) {
-          return {
-            success: false,
-            error: 'Infelizmente, estas datas já estão ocupadas ou foram reservadas agora há pouco. Por favor, escolha outro período ou quarto.',
-          };
-        }
-
-        // Consultar se há bloqueios manuais ativos para o quarto no período
-        const { data: overlappingBlocks, error: blockError } = await supabase
-          .from('room_blocks')
-          .select('id, reason')
-          .eq('room_id', payload.roomId!)
-          .lt('start_date', payload.checkOut)
-          .gt('end_date', payload.checkIn);
-
-        if (!blockError && overlappingBlocks && overlappingBlocks.length > 0) {
-          return {
-            success: false,
-            error: 'Este quarto está bloqueado para manutenção ou uso interno nas datas selecionadas. Por favor, escolha outro período ou quarto.',
-          };
-        }
-      } else {
-        // Fallback local com a mesma trava de colisão de datas
-        const localReservations = mockData.getAllReservations();
-        const conflict = localReservations.some((res) => {
-          if (res.roomId !== payload.roomId || res.status === 'cancelled') return false;
-          return res.checkIn < payload.checkOut && res.checkOut > payload.checkIn;
-        });
-
-        if (conflict) {
-          return {
-            success: false,
-            error: 'Infelizmente, estas datas já estão ocupadas ou foram reservadas agora há pouco. Por favor, escolha outro período ou quarto.',
-          };
-        }
-
-        // Fallback local: verificar bloqueios manuais
-        const localBlocks = mockData.getAllRoomBlocks();
-        const blockConflict = localBlocks.some(
-          (b) =>
-            b.roomId === payload.roomId &&
-            b.startDate < payload.checkOut &&
-            b.endDate > payload.checkIn
-        );
-
-        if (blockConflict) {
-          return {
-            success: false,
-            error: 'Este quarto está bloqueado para manutenção ou uso interno nas datas selecionadas. Por favor, escolha outro período ou quarto.',
-          };
-        }
+    // Pré-lançamento: o fluxo público não cria reservas. A reserva manual da
+    // equipe (canal 'manual', sessão validada) continua disponível no painel.
+    if (!isOnlineBookingEnabled()) {
+      const isStaffManual = payload.channel === 'manual' && (await isStaff());
+      if (!isStaffManual) {
+        return { success: false, error: ONLINE_BOOKING_DISABLED_MESSAGE };
       }
     }
 
-    // ── 3. Efetivação da Reserva (Insert no Banco) ──
-    // Código único: timestamp base36 (últimos 4 chars) + 3 dígitos random
-    // Espaço: ~46^4 × 900 = bilhões de combinações (vs. 9.000 anterior)
-    const ts = Date.now().toString(36).toUpperCase().slice(-4);
-    const rand = Math.floor(100 + Math.random() * 900);
-    const generatedBookingCode = `AN-${ts}${rand}`;
-    const initialStatus: ReservationStatus = payload.status || 'pending';
-
-    if (isSupabaseConfigured()) {
-      const { data: newBooking, error: insertError } = await supabase
-        .from('bookings')
-        .insert({
-          booking_code: generatedBookingCode,
-          room_id: isRoomBooking ? payload.roomId : null,
-          user_id: `guest-${Date.now().toString(36)}`,
-          guest_name: payload.guestName.trim(),
-          guest_email: sanitizedEmail,
-          guest_phone: payload.guestPhone?.trim() || '',
-          check_in_date: payload.checkIn,
-          check_out_date: payload.checkOut,
-          guests: payload.guests || 2,
-          room_price: payload.roomPrice || 0,
-          addons_price: payload.addonsPrice || 0,
-          discount_price: payload.discountPrice || 0,
-          total_price: payload.totalPrice,
-          status: initialStatus,
-          special_requests: payload.specialRequests?.trim() || null,
-          payment_method: payload.paymentMethod,
-          selected_addons: (payload.selectedAddons as any) || [],
-          guest_document: payload.guestDocument?.trim() || null,
-          tax_id: payload.taxId?.trim() || null,
-          company_name: payload.companyName?.trim() || null,
-          billing_address: payload.billingAddress?.trim() || null,
-          invoice_status: payload.invoiceStatus || (payload.taxId ? 'pending' : 'exempt'),
-        })
-        .select()
-        .single();
-
-      if (insertError || !newBooking) {
-        console.error('[CreateBookingAction] Erro no insert Supabase:', insertError);
-        // Fallback local se o insert remoto falhar
-        const fallbackRes = mockData.createReservation({
-          userId: `guest-${Date.now().toString(36)}`,
-          roomId: payload.roomId || `exp-booking-${payload.experienceId || 'general'}`,
-          checkIn: payload.checkIn,
-          checkOut: payload.checkOut,
-          guests: payload.guests,
-          totalPrice: payload.totalPrice,
-          roomPrice: payload.roomPrice,
-          addonsPrice: payload.addonsPrice,
-          discountPrice: payload.discountPrice,
-          specialRequests: payload.specialRequests || null,
-          guestName: payload.guestName,
-          guestEmail: sanitizedEmail,
-          guestPhone: payload.guestPhone || '',
-          guestDocument: payload.guestDocument || null,
-          taxId: payload.taxId || null,
-          companyName: payload.companyName || null,
-          billingAddress: payload.billingAddress || null,
-          invoiceStatus: payload.invoiceStatus || (payload.taxId ? 'pending' : 'exempt'),
-          paymentMethod: payload.paymentMethod,
-          selectedAddons: payload.selectedAddons || [],
-          status: initialStatus,
-        });
-
-        // Disparo automático e assíncrono do e-mail de confirmação (fallback)
-        getRoomByIdAsync(fallbackRes.roomId)
-          .then((roomData) => sendBookingConfirmationEmail(fallbackRes, roomData))
-          .catch((emailErr) =>
-            console.error('[CreateBookingAction] Erro no envio de e-mail (fallback):', emailErr)
-          );
-
-        await safeRevalidatePaths(['/admin', '/admin/calendario', '/admin/faturamento']);
-
-        return {
-          success: true,
-          bookingId: fallbackRes.id,
-          bookingCode: fallbackRes.bookingCode,
-          reservation: fallbackRes,
-        };
+    if (payload.status !== undefined && payload.status !== 'pending') {
+      if (!VALID_STATUSES.includes(payload.status) || !(await isStaff())) {
+        return { success: false, error: UNAUTHORIZED_MESSAGE };
       }
-
-      const mapped = mapDbBookingToReservation(newBooking);
-
-      // Disparo automático e assíncrono do e-mail de confirmação (Supabase)
-      getRoomByIdAsync(mapped.roomId)
-        .then((roomData) => sendBookingConfirmationEmail(mapped, roomData))
-        .catch((emailErr) =>
-          console.error('[CreateBookingAction] Erro no envio de e-mail:', emailErr)
-        );
-
-      await safeRevalidatePaths(['/admin', '/admin/calendario', '/admin/governanca', '/admin/faturamento']);
-
-      return {
-        success: true,
-        bookingId: mapped.id,
-        bookingCode: mapped.bookingCode,
-        reservation: mapped,
-      };
+    }
+    // Canal manual (sem desconto PIX) e qualquer canal desconhecido: só equipe
+    if (payload.channel !== undefined && payload.channel !== 'web') {
+      if (payload.channel !== 'manual' || !(await isStaff())) {
+        return { success: false, error: UNAUTHORIZED_MESSAGE };
+      }
     }
 
-    // Criação via mockData se o Supabase não estiver configurado
-    const localRes = mockData.createReservation({
-      userId: `guest-${Date.now().toString(36)}`,
-      roomId: payload.roomId || `exp-booking-${payload.experienceId || 'general'}`,
-      checkIn: payload.checkIn,
-      checkOut: payload.checkOut,
-      guests: payload.guests,
-      totalPrice: payload.totalPrice,
-      roomPrice: payload.roomPrice,
-      addonsPrice: payload.addonsPrice,
-      discountPrice: payload.discountPrice,
-      specialRequests: payload.specialRequests || null,
-      guestName: payload.guestName,
-      guestEmail: sanitizedEmail,
-      guestPhone: payload.guestPhone || '',
-      guestDocument: payload.guestDocument || null,
-      taxId: payload.taxId || null,
-      companyName: payload.companyName || null,
-      billingAddress: payload.billingAddress || null,
-      invoiceStatus: payload.invoiceStatus || (payload.taxId ? 'pending' : 'exempt'),
-      paymentMethod: payload.paymentMethod,
-      selectedAddons: payload.selectedAddons || [],
-      status: initialStatus,
+    const repo = isSupabaseConfigured()
+      ? supabaseBookingRepository
+      : isMockDataAllowed()
+        ? mockBookingRepository
+        : null;
+
+    return await createBooking(payload, {
+      repo,
+      catalog: serverPricingCatalog,
+      sendConfirmation: async (reservation) =>
+        sendBookingConfirmationEmail(reservation, await getRoomByIdAsync(reservation.roomId)),
+      revalidate: safeRevalidatePaths,
     });
-
-    // Disparo automático e assíncrono do e-mail de confirmação (Local / Mock)
-    getRoomByIdAsync(localRes.roomId)
-      .then((roomData) => sendBookingConfirmationEmail(localRes, roomData))
-      .catch((emailErr) =>
-        console.error('[CreateBookingAction] Erro no envio de e-mail (local):', emailErr)
-      );
-
-    await safeRevalidatePaths(['/admin', '/admin/calendario', '/admin/governanca', '/admin/faturamento']);
-
-    return {
-      success: true,
-      bookingId: localRes.id,
-      bookingCode: localRes.bookingCode,
-      reservation: localRes,
-    };
-  } catch (err: any) {
+  } catch (err) {
     console.error('[CreateBookingAction] Exceção inesperada:', err);
     return {
       success: false,
-      error: 'Não foi possível processar a reserva no momento. Tente novamente.',
+      error: 'Não foi possível processar a reserva no momento. Nenhuma reserva foi criada. Tente novamente.',
     };
   }
 }
 
 /**
- * Consulta de reserva no Supabase por ID ou Localizador
+ * Consulta de reserva por ID ou localizador (tela de sucesso do checkout).
+ * Equipe recebe a reserva completa; público recebe visão reduzida.
  */
 export async function getBookingByIdAction(idOrCode: string): Promise<{
   success: boolean;
   reservation?: Reservation;
   error?: string;
 }> {
-  if (!idOrCode) {
-    return { success: false, error: 'Identificador não fornecido.' };
+  const ref = parseBookingRef(idOrCode);
+  if (!ref) {
+    return { success: false, error: 'Reserva não encontrada.' };
   }
 
   try {
+    let found: Reservation | undefined;
+
     if (isSupabaseConfigured()) {
       const { data, error } = await supabase
         .from('bookings')
         .select('*')
-        .or(`id.eq.${idOrCode},booking_code.eq.${idOrCode}`)
+        .eq(ref.column, ref.value)
         .maybeSingle();
 
-      if (!error && data) {
-        return {
-          success: true,
-          reservation: mapDbBookingToReservation(data),
-        };
+      if (error) {
+        console.error('[GetBookingByIdAction] Erro no Supabase:', error);
+        return { success: false, error: 'Erro ao buscar reserva.' };
       }
+      if (data) found = mapDbBookingToReservation(data);
+    } else if (isMockDataAllowed()) {
+      // Mock apenas em desenvolvimento/demo — nunca mascarar o banco real
+      found = mockData.getReservationById(ref.value);
     }
 
-    // Fallback local
-    const found = mockData.getReservationById(idOrCode);
-    if (found) {
-      return {
-        success: true,
-        reservation: found,
-      };
+    if (!found) {
+      return { success: false, error: 'Reserva não encontrada.' };
     }
 
-    return { success: false, error: 'Reserva não encontrada.' };
+    return {
+      success: true,
+      reservation: (await isStaff()) ? found : toPublicReservation(found),
+    };
   } catch {
     return { success: false, error: 'Erro ao buscar reserva.' };
   }
 }
 
 /**
- * Atualização do ciclo de vida/status da reserva no Supabase
+ * Atualização do ciclo de vida/status da reserva. Somente equipe.
  */
 export async function updateBookingStatusAction(
   bookingId: string,
   newStatus: ReservationStatus
 ): Promise<BookingActionResult> {
-  if (!bookingId) {
-    return { success: false, error: 'ID da reserva é obrigatório.' };
+  if (!(await isStaff())) {
+    return { success: false, error: UNAUTHORIZED_MESSAGE };
+  }
+
+  const ref = parseBookingRef(bookingId);
+  if (!ref) {
+    return { success: false, error: 'ID da reserva inválido.' };
+  }
+  if (!VALID_STATUSES.includes(newStatus)) {
+    return { success: false, error: 'Status de reserva inválido.' };
   }
 
   try {
     let updatedReservation: Reservation | undefined;
 
     if (isSupabaseConfigured()) {
+      // .eq() com valor validado: atualiza no máximo uma reserva
       const { data, error } = await supabase
         .from('bookings')
         .update({ status: newStatus })
-        .or(`id.eq.${bookingId},booking_code.eq.${bookingId}`)
+        .eq(ref.column, ref.value)
         .select()
         .maybeSingle();
 
       if (error) {
+        // Ex.: reativar reserva cancelada sobre período já ocupado/bloqueado (23P01 / AN001)
         console.error('[UpdateBookingStatusAction] Erro no update Supabase:', error);
-      } else if (data) {
+        return { success: false, error: bookingErrorMessage(classifyDbError(error)) };
+      }
+      if (data) {
         updatedReservation = mapDbBookingToReservation(data);
       }
-    }
-
-    // Fallback de atualização local para sincronização de estado na memória
-    if (!updatedReservation) {
-      const localUpdated = mockData.updateReservationStatus(bookingId, newStatus);
-      updatedReservation = localUpdated;
+    } else if (isMockDataAllowed()) {
+      // Mock apenas em desenvolvimento/demo — nunca como fallback de falha do banco
+      updatedReservation = mockData.updateReservationStatus(ref.value, newStatus);
     }
 
     if (!updatedReservation) {
@@ -399,7 +205,7 @@ export async function updateBookingStatusAction(
     // Revalidação dos caminhos Next.js para atualização instantânea em tela
     await safeRevalidatePaths(['/admin', '/admin/calendario', '/admin/governanca']);
 
-    // ── Automação:_marcar quarto como "sujo" ao realizar check-out ──
+    // ── Automação: marcar quarto como "sujo" ao realizar check-out ──
     if (newStatus === 'checked_out' && updatedReservation.roomId) {
       try {
         await updateHousekeepingAsync(
@@ -428,67 +234,54 @@ export async function updateBookingStatusAction(
 }
 
 /**
- * Busca pública de reserva por código (AN-XXXX) ou e-mail do hóspede.
- * Retorna a reserva encontrada (ou null se não encontrar).
+ * Busca pública de reserva por localizador (AN-1234 ou AN-XXXX123) ou e-mail.
+ * Retorna visão reduzida (sem documento/dados fiscais; contato mascarado).
  */
 export async function lookupBookingAction(
   query: string
 ): Promise<{ success: boolean; reservation?: Reservation; error?: string }> {
-  const trimmed = query.trim();
+  const trimmed = (query || '').trim();
   if (!trimmed) {
     return { success: false, error: 'Informe um código de reserva ou e-mail.' };
   }
 
+  const code = normalizeBookingCode(trimmed);
+  const email = code ? null : normalizeEmail(trimmed);
+
+  if (!code && !email) {
+    return { success: false, error: NOT_FOUND_LOOKUP };
+  }
+
   try {
-    // ── Busca por código de reserva (formato AN-XXXX ou UUID) ──
-    const isCode = /^AN-\d{4}$/i.test(trimmed) || trimmed.length >= 20;
+    let found: Reservation | undefined;
 
-    if (isCode && isSupabaseConfigured()) {
-      const { data, error } = await supabase
-        .from('bookings')
-        .select('*')
-        .eq('booking_code', trimmed.toUpperCase())
-        .maybeSingle();
+    if (isSupabaseConfigured()) {
+      const base = supabase.from('bookings').select('*');
+      const { data, error } = code
+        ? await base.eq('booking_code', code).maybeSingle()
+        : await base
+            // ILIKE sem curingas: comparação exata, ignorando maiúsculas/minúsculas
+            .ilike('guest_email', escapeLikePattern(email!))
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-      if (!error && data) {
-        return { success: true, reservation: mapDbBookingToReservation(data) };
+      if (error) {
+        console.error('[LookupBookingAction] Erro no Supabase:', error);
+        return { success: false, error: 'Erro ao buscar reserva. Tente novamente.' };
       }
+      if (data) found = mapDbBookingToReservation(data);
+    } else if (isMockDataAllowed()) {
+      // Mock apenas em desenvolvimento/demo
+      found = code ? mockData.getReservationById(code) : mockData.getReservationsByEmail(email!)[0];
     }
 
-    // ── Busca por e-mail ──
-    const isEmail = trimmed.includes('@');
-
-    if (isEmail && isSupabaseConfigured()) {
-      const { data, error } = await supabase
-        .from('bookings')
-        .select('*')
-        .ilike('guest_email', trimmed)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!error && data) {
-        return { success: true, reservation: mapDbBookingToReservation(data) };
-      }
+    if (!found) {
+      return { success: false, error: NOT_FOUND_LOOKUP };
     }
 
-    // ── Fallback local ──
-    if (isCode) {
-      const found = mockData.getReservationById(trimmed);
-      if (found) return { success: true, reservation: found };
-    }
-
-    if (isEmail) {
-      const found = mockData.getReservationsByEmail(trimmed);
-      if (found.length > 0) return { success: true, reservation: found[0] };
-    }
-
-    return {
-      success: false,
-      error: 'Nenhuma reserva encontrada. Verifique o código (AN-XXXX) ou o e-mail informado.',
-    };
+    return { success: true, reservation: toPublicReservation(found) };
   } catch {
     return { success: false, error: 'Erro ao buscar reserva. Tente novamente.' };
   }
 }
-

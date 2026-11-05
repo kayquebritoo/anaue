@@ -49,8 +49,13 @@ export interface PaymentStatusResponse {
   status_detail: string;
   external_reference: string;
   transaction_amount: number;
+  currency_id?: string;
   payment_method_id: string;
   date_approved: string | null;
+  date_of_expiration?: string;
+  point_of_interaction?: {
+    transaction_data?: { qr_code?: string; qr_code_base64?: string; ticket_url?: string; redirect_url?: string };
+  };
 }
 
 // ─── Criar Pagamento PIX ────────────────────────────────────
@@ -60,6 +65,8 @@ export interface CreatePixPaymentParams {
   description: string;
   email: string;
   externalReference: string;
+  /** Mesma chave → o MP devolve o mesmo pagamento (evita cobrança duplicada). */
+  idempotencyKey?: string;
 }
 
 export async function createPixPayment(
@@ -73,13 +80,17 @@ export async function createPixPayment(
       email: params.email,
     },
     external_reference: params.externalReference,
+    // Opcional: URL de webhook por pagamento (ex.: preview/staging em teste de PIX real),
+    // sem alterar a configuração de webhook de produção no painel do MP.
+    ...(process.env.MP_NOTIFICATION_URL ? { notification_url: process.env.MP_NOTIFICATION_URL } : {}),
     // Expiração: 30 minutos a partir de agora
     date_of_expiration: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
   };
 
   const response = await fetch(`${MP_BASE_URL}/payments`, {
     method: 'POST',
-    headers: headers(),
+    // Chave de idempotência exigida pela API de pagamentos do Mercado Pago
+    headers: { ...headers(), 'X-Idempotency-Key': params.idempotencyKey || crypto.randomUUID() },
     body: JSON.stringify(body),
   });
 

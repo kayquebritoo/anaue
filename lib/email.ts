@@ -7,12 +7,32 @@
 import { Resend } from 'resend';
 import nodemailer from 'nodemailer';
 import type { Reservation, Room } from '@/types';
+import { isIntegrationMockAllowed } from '@/lib/dataMode';
 
 // ─── CONFIGURAÇÕES & VARIÁVEIS DE AMBIENTE ──────────────────
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
+// Remetente precisa ser de um domínio VERIFICADO no Resend (anaueamazonia.com.br).
 const EMAIL_FROM =
-  process.env.EMAIL_FROM || 'Anauê Amazônia <reservas@anaue.com.br>';
+  process.env.EMAIL_FROM || 'Anauê Amazônia <reservas@anaueamazonia.com.br>';
+const CONTACT_EMAIL = process.env.CONTACT_EMAIL || '';
+const CONTACT_WHATSAPP = (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '').replace(/\D/g, '');
+
+/** Endereços gerados internamente (reserva por WhatsApp sem e-mail) — nunca enviar. */
+const SYNTHETIC_EMAIL_DOMAINS = ['@guest.anaue.com.br', '@manual.anaue.com.br'];
+
+function formatWhatsApp(digits: string): string {
+  const m = digits.match(/^55(\d{2})(\d{4,5})(\d{4})$/);
+  return m ? `+55 (${m[1]}) ${m[2]}-${m[3]}` : '';
+}
+
+function contactLineHtml(): string {
+  const parts: string[] = [];
+  const wa = CONTACT_WHATSAPP && CONTACT_WHATSAPP !== '5592998000000' ? formatWhatsApp(CONTACT_WHATSAPP) : '';
+  if (wa) parts.push(`WhatsApp: <strong style="color: #9EBAA8;">${wa}</strong>`);
+  if (CONTACT_EMAIL) parts.push(`e-mail: <strong style="color: #9EBAA8;">${CONTACT_EMAIL}</strong>`);
+  return parts.length ? `Dúvidas ou alterações? Fale conosco — ${parts.join(' ou ')}` : 'Dúvidas ou alterações? Responda este e-mail.';
+}
 
 const SMTP_HOST = process.env.SMTP_HOST;
 const SMTP_PORT = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587;
@@ -357,7 +377,7 @@ export function generateBookingEmailHtml(
                   Anauê Amazônia Ecolodge &bull; Presidente Figueiredo / Rio Negro &bull; Amazonas, Brasil
                 </p>
                 <p style="margin: 0 0 12px; color: #738A7C; font-size: 12px;">
-                  Dúvidas ou alterações? Entre em contato pelo WhatsApp: <strong style="color: #9EBAA8;">+55 (92) 99123-4567</strong> ou e-mail: <strong style="color: #9EBAA8;">reservas@anaue.com.br</strong>
+                  ${contactLineHtml()}
                 </p>
                 <p style="margin: 0; color: #4B5E52; font-size: 11px;">
                   &copy; ${new Date().getFullYear()} Anauê Amazônia. Todos os direitos reservados.
@@ -428,9 +448,17 @@ Anauê Amazônia — Conexão Viva com a Floresta
 
 // ─── DISPARADOR PRINCIPAL (RESEND COM FALLBACK SMTP) ─────────
 
+/** Só diz "confirmada" quando o status realmente é confirmado (pagamento validado). */
+export function bookingEmailSubject(booking: Pick<Reservation, 'status' | 'bookingCode'>): string {
+  const isConfirmed = booking.status === 'confirmed' || booking.status === 'checked_in';
+  return isConfirmed
+    ? `Reserva confirmada: ${booking.bookingCode} — Anauê Amazônia`
+    : `Recebemos sua reserva ${booking.bookingCode} — aguardando pagamento`;
+}
+
 export interface SendEmailResult {
   success: boolean;
-  provider: 'resend' | 'smtp' | 'mock';
+  provider: 'resend' | 'smtp' | 'mock' | 'none';
   messageId?: string;
   error?: string;
 }
@@ -446,8 +474,12 @@ export async function sendBookingConfirmationEmail(
   booking: Reservation,
   room?: Room | null
 ): Promise<SendEmailResult> {
-  const subject = `Reserva Confirmada: ${booking.bookingCode} — Anauê Amazônia`;
+  const subject = bookingEmailSubject(booking);
   const to = booking.guestEmail;
+
+  if (to && SYNTHETIC_EMAIL_DOMAINS.some((d) => to.toLowerCase().endsWith(d))) {
+    return { success: false, provider: 'none', error: 'Reserva sem e-mail do hóspede (endereço interno).' };
+  }
 
   if (!to || !to.includes('@')) {
     console.warn(
@@ -535,7 +567,15 @@ export async function sendBookingConfirmationEmail(
     }
   }
 
-  // 3. Fallback de Desenvolvimento / Mock (nenhuma chave configurada no momento)
+  // 3. Nenhum provedor disponível. Em produção: falha explícita (nunca fingir envio).
+  if (!isIntegrationMockAllowed()) {
+    console.error(
+      `[EmailService] E-mail NÃO enviado para a reserva ${booking.bookingCode}: nenhum provedor configurado/funcionando (RESEND_API_KEY ou SMTP).`
+    );
+    return { success: false, provider: 'none', error: 'Nenhum provedor de e-mail disponível.' };
+  }
+
+  // Desenvolvimento / testes: simulação no console
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('🌲 [EmailService] SIMULAÇÃO DE DISPARO DE E-MAIL (MOCK MODE)');
   console.log(`✉️  Para: ${to}`);

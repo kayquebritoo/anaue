@@ -9,6 +9,8 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { fetchIcalEventsAsync } from '@/lib/supabaseData';
 import { parseIcalToBlockedDates, type IcalBlockedDate } from '@/lib/icalParser';
 import * as mockData from '@/lib/mockData';
+import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
+import { isSafeExternalUrl } from '@/lib/urlSafety';
 
 export interface IcalSyncResult {
   success: boolean;
@@ -26,6 +28,9 @@ export interface IcalSyncResult {
 export async function syncRoomIcalAction(
   roomId: string
 ): Promise<IcalSyncResult> {
+  if (!(await isStaff())) {
+    return { success: false, roomName: '', eventsCount: 0, blockedDates: [], lastSyncedAt: '', error: UNAUTHORIZED_MESSAGE };
+  }
   let room: { id: string; name: string; icalImportUrl: string | null } | undefined;
 
   if (isSupabaseConfigured()) {
@@ -123,10 +128,12 @@ export async function saveIcalImportUrlAction(
   roomId: string,
   url: string
 ): Promise<{ success: boolean; error?: string }> {
-  const normalizedUrl = url.trim();
+  if (!(await isStaff())) return { success: false, error: UNAUTHORIZED_MESSAGE };
+  const normalizedUrl = (url || '').trim();
 
-  if (normalizedUrl && !normalizedUrl.startsWith('http')) {
-    return { success: false, error: 'URL inválida. Deve começar com http:// ou https://' };
+  // O servidor busca esta URL: aceitar só https público (mitiga SSRF)
+  if (normalizedUrl && !isSafeExternalUrl(normalizedUrl)) {
+    return { success: false, error: 'URL inválida. Use o link https:// público fornecido pelo Airbnb/Booking.' };
   }
 
   if (isSupabaseConfigured()) {
@@ -149,6 +156,7 @@ export async function saveIcalImportUrlAction(
 export async function getAllRoomsIcalConfigAsync(): Promise<
   { id: string; name: string; slug: string; icalImportUrl: string | null; icalExportUrl: string | null; icalSyncedAt: string | null }[]
 > {
+  if (!(await isStaff())) throw new Error(UNAUTHORIZED_MESSAGE);
   if (isSupabaseConfigured()) {
     const { data, error } = await supabase
       .from('rooms')

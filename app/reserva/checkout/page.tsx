@@ -14,7 +14,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 import { useCheckout } from '@/hooks/useCheckout';
-import { getRoomById, getAddons, getExperienceById, getExperiences } from '@/lib/mockData';
+import { getAddons } from '@/lib/mockData';
+import { getRoomByIdAsync, getExperienceByIdAsync, getExperiencesAsync } from '@/lib/supabaseData';
 import { createPixPaymentAction } from '@/app/actions/payment';
 import { BookingSummaryCard } from '@/components/checkout/BookingSummaryCard';
 import { AddonsSelector } from '@/components/checkout/AddonsSelector';
@@ -24,6 +25,8 @@ import { PaymentMethodSelector } from '@/components/checkout/PaymentMethodSelect
 import { CouponInput } from '@/components/checkout/CouponInput';
 import { AnimatedTotal } from '@/components/checkout/AnimatedTotal';
 import { StayEditor } from '@/components/checkout/StayEditor';
+import { BookingComingSoon } from '@/components/checkout/BookingComingSoon';
+import { isOnlineBookingEnabled } from '@/lib/launchMode';
 import type { Room, AddonExperience, Experience } from '@/types';
 
 // Esta página usa searchParams (runtime), então não é SSG
@@ -46,19 +49,33 @@ function CheckoutPageContent() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Resolver dados no cliente (mockData é síncrono)
+  // Preços exibidos vêm da MESMA fonte usada pelo servidor para calcular o
+  // valor (Supabase; adicionais do catálogo estático). Assim, uma tarifa
+  // alterada no banco aparece no checkout em vez de gerar divergência.
   useEffect(() => {
-    if (roomId) {
-      const found = getRoomById(roomId);
-      setRoom(found ?? null);
-    }
-    if (experienceId) {
-      const foundExp = getExperienceById(experienceId);
-      setExperience(foundExp ?? null);
-    }
-    setAddons(getAddons());
-    setExperiences(getExperiences());
-    setLoading(false);
+    let cancelled = false;
+    (async () => {
+      try {
+        const [foundRoom, foundExp, allExperiences] = await Promise.all([
+          roomId ? getRoomByIdAsync(roomId) : Promise.resolve(undefined),
+          experienceId ? getExperienceByIdAsync(experienceId) : Promise.resolve(undefined),
+          getExperiencesAsync(),
+        ]);
+        if (cancelled) return;
+        setRoom(foundRoom ?? null);
+        setExperience(foundExp ?? null);
+        setExperiences(allExperiences);
+        setAddons(getAddons());
+      } catch (err) {
+        console.error('[Checkout] Falha ao carregar tarifas:', err);
+        if (!cancelled) setSubmitError('Não foi possível carregar as tarifas agora. Recarregue a página.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [roomId, experienceId]);
 
   const checkout = useCheckout({
@@ -82,16 +99,10 @@ function CheckoutPageContent() {
           `Reserva Anauê — ${result.reservation.bookingCode}`
         );
 
-        if (pixResult.success && pixResult.qrCodeBase64) {
-          const pixParams = new URLSearchParams({
-            show_pix: 'true',
-            pix_paymentId: String(pixResult.paymentId),
-            pix_qrCode: pixResult.qrCodeBase64,
-            pix_copiaECola: pixResult.copiaECola || '',
-            pix_ticketUrl: pixResult.ticketUrl || '',
-            pix_expiresAt: pixResult.expiresAt || '',
-          });
-          router.push(`/reserva/sucesso/${result.reservation.id}?${pixParams.toString()}`);
+        if (pixResult.success && pixResult.paymentId) {
+          // Só o ID do pagamento vai na URL; o QR é buscado no servidor
+          // (gateway) e validado contra a reserva na tela de sucesso.
+          router.push(`/reserva/sucesso/${result.reservation.id}?pix=${encodeURIComponent(String(pixResult.paymentId))}`);
           return;
         }
       }
@@ -104,6 +115,11 @@ function CheckoutPageContent() {
       );
     }
   };
+
+  // ── Pré-lançamento: reservas online desabilitadas (bloqueio também no servidor) ──
+  if (!isOnlineBookingEnabled()) {
+    return <BookingComingSoon roomName={room?.name ?? null} />;
+  }
 
   // ── Tela de carregamento ──
   if (loading) {

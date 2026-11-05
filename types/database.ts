@@ -168,6 +168,7 @@ export interface Database {
           special_requests: string | null;
           payment_method: string;
           selected_addons: Json;
+          coupon_code: string | null;
           guest_document?: string | null;
           tax_id?: string | null;
           company_name?: string | null;
@@ -196,6 +197,7 @@ export interface Database {
           special_requests?: string | null;
           payment_method?: string;
           selected_addons?: Json;
+          coupon_code?: string | null;
           guest_document?: string | null;
           tax_id?: string | null;
           company_name?: string | null;
@@ -224,6 +226,7 @@ export interface Database {
           special_requests?: string | null;
           payment_method?: string;
           selected_addons?: Json;
+          coupon_code?: string | null;
           guest_document?: string | null;
           tax_id?: string | null;
           company_name?: string | null;

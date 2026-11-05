@@ -11,7 +11,7 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Calendar, Users, Minus, Plus, Moon, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import { formatPrice } from '@/lib/mockData';
-import { getUnavailableRoomIdsAsync } from '@/lib/supabaseData';
+import { fetchUnavailableRoomIds } from '@/lib/availabilityClient';
 import type { Room } from '@/types';
 
 interface RoomBookingWidgetProps {
@@ -60,7 +60,7 @@ export function RoomBookingWidget({
     let cancelled = false;
     setCheckingAvailability(true);
 
-    getUnavailableRoomIdsAsync(checkIn, checkOut).then((unavailable) => {
+    fetchUnavailableRoomIds(checkIn, checkOut).then((unavailable) => {
       if (!cancelled) {
         setDateConflict(unavailable.has(room.id));
         setCheckingAvailability(false);

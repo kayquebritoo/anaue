@@ -4,11 +4,15 @@
 // Com fallback automático para Mock Data se Supabase estiver offline
 // ============================================================
 
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import * as mockData from '@/lib/mockData';
 import { hasIcalDateConflict, parseIcalEvents, type IcalEvent } from '@/lib/icalParser';
+import { shouldUseMockData, DataUnavailableError } from '@/lib/dataMode';
+import { parseBookingRef } from '@/lib/queryInput';
+import { isSafeExternalUrl } from '@/lib/urlSafety';
+import { BookingDbError } from '@/lib/bookingErrors';
 import type { Room, Experience, Reservation, RoomHousekeeping, ReservationStatus, HousekeepingStatus, Coupon, RoomBlock, RoomBlockReason, InvoiceStatus } from '@/types';
-import type { DbRoom, DbExperience, DbBooking, DbCoupon, DbHousekeeping, DbRoomBlock } from '@/types/database';
+import type { Database, Json, DbRoom, DbExperience, DbBooking, DbCoupon, DbRoomBlock } from '@/types/database';
 
 // ─── MAPPERS DE BANCO PARA MODELOS DE UI ─────────────────────
 
@@ -102,274 +106,206 @@ export function mapDbRoomBlockToRoomBlock(dbBlock: DbRoomBlock, roomName?: strin
   };
 }
 
+// ─── POLÍTICA DE FALHAS ───────────────────────────────────────
+// Com Supabase configurado, erros do banco NUNCA são mascarados com mock:
+// a função lança DataUnavailableError (leituras) ou BookingDbError (escritas).
+// Mock só é usado quando shouldUseMockData() permite (dev/teste/demo).
+
+function readFailure(context: string, error: unknown): never {
+  console.error(`[${context}] Falha ao ler do Supabase:`, error);
+  throw new DataUnavailableError(`Não foi possível carregar dados (${context}).`);
+}
+
+function writeFailure(context: string, error: { message?: string; code?: string } | null): never {
+  console.error(`[${context}] Falha ao gravar no Supabase:`, error);
+  throw new BookingDbError(error?.message || `Falha ao gravar (${context})`, error?.code);
+}
+
 // ─── ACOMODAÇÕES (ROOMS) ──────────────────────────────────────
 
 export async function getRoomsAsync(): Promise<Room[]> {
-  if (!isSupabaseConfigured()) {
-    return mockData.getRooms();
-  }
+  if (shouldUseMockData()) return mockData.getRooms();
 
-  try {
-    const { data, error } = await supabase
-      .from('rooms')
-      .select('*')
-      .order('price_per_night', { ascending: true });
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('*')
+    .order('price_per_night', { ascending: true });
 
-    if (error || !data || data.length === 0) {
-      return mockData.getRooms();
-    }
-
-    return data.map(mapDbRoomToRoom);
-  } catch {
-    return mockData.getRooms();
-  }
+  if (error || !data) readFailure('getRoomsAsync', error);
+  return data.map(mapDbRoomToRoom);
 }
 
 export async function getFeaturedRoomsAsync(): Promise<Room[]> {
-  if (!isSupabaseConfigured()) {
-    return mockData.getFeaturedRooms();
-  }
+  if (shouldUseMockData()) return mockData.getFeaturedRooms();
 
-  try {
-    const { data, error } = await supabase
-      .from('rooms')
-      .select('*')
-      .eq('is_featured', true);
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('*')
+    .eq('is_featured', true);
 
-    if (error || !data || data.length === 0) {
-      return mockData.getFeaturedRooms();
-    }
-
-    return data.map(mapDbRoomToRoom);
-  } catch {
-    return mockData.getFeaturedRooms();
-  }
+  if (error || !data) readFailure('getFeaturedRoomsAsync', error);
+  return data.map(mapDbRoomToRoom);
 }
 
 export async function getRoomBySlugAsync(slug: string): Promise<Room | undefined> {
-  if (!isSupabaseConfigured()) {
-    return mockData.getRoomBySlug(slug);
-  }
+  if (shouldUseMockData()) return mockData.getRoomBySlug(slug);
 
-  try {
-    const { data, error } = await supabase
-      .from('rooms')
-      .select('*')
-      .eq('slug', slug)
-      .maybeSingle();
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('*')
+    .eq('slug', slug)
+    .maybeSingle();
 
-    if (error || !data) {
-      return mockData.getRoomBySlug(slug);
-    }
-
-    return mapDbRoomToRoom(data);
-  } catch {
-    return mockData.getRoomBySlug(slug);
-  }
+  if (error) readFailure('getRoomBySlugAsync', error);
+  return data ? mapDbRoomToRoom(data) : undefined;
 }
 
 export async function getRoomByIdAsync(id: string): Promise<Room | undefined> {
   if (!id) return undefined;
+  if (shouldUseMockData()) return mockData.getRoomById(id);
 
-  if (!isSupabaseConfigured()) {
-    return mockData.getRoomById(id);
-  }
+  const { data, error } = await supabase
+    .from('rooms')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
 
-  try {
-    const { data, error } = await supabase
-      .from('rooms')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-
-    if (error || !data) {
-      return mockData.getRoomById(id);
-    }
-
-    return mapDbRoomToRoom(data);
-  } catch {
-    return mockData.getRoomById(id);
-  }
+  if (error) readFailure('getRoomByIdAsync', error);
+  return data ? mapDbRoomToRoom(data) : undefined;
 }
 
 // ─── EXPERIÊNCIAS ─────────────────────────────────────────────
 
 export async function getExperiencesAsync(): Promise<Experience[]> {
-  if (!isSupabaseConfigured()) {
-    return mockData.getExperiences();
-  }
+  if (shouldUseMockData()) return mockData.getExperiences();
 
-  try {
-    const { data, error } = await supabase
-      .from('experiences')
-      .select('*')
-      .order('price', { ascending: true });
+  const { data, error } = await supabase
+    .from('experiences')
+    .select('*')
+    .order('price', { ascending: true });
 
-    if (error || !data || data.length === 0) {
-      return mockData.getExperiences();
-    }
-
-    return data.map(mapDbExperienceToExperience);
-  } catch {
-    return mockData.getExperiences();
-  }
+  if (error || !data) readFailure('getExperiencesAsync', error);
+  return data.map(mapDbExperienceToExperience);
 }
 
 export async function getExperienceBySlugAsync(slug: string): Promise<Experience | undefined> {
-  if (!isSupabaseConfigured()) {
-    return mockData.getExperienceBySlug(slug);
-  }
+  if (shouldUseMockData()) return mockData.getExperienceBySlug(slug);
 
-  try {
-    const { data, error } = await supabase
-      .from('experiences')
-      .select('*')
-      .eq('slug', slug)
-      .maybeSingle();
+  const { data, error } = await supabase
+    .from('experiences')
+    .select('*')
+    .eq('slug', slug)
+    .maybeSingle();
 
-    if (error || !data) {
-      return mockData.getExperienceBySlug(slug);
-    }
+  if (error) readFailure('getExperienceBySlugAsync', error);
+  return data ? mapDbExperienceToExperience(data) : undefined;
+}
 
-    return mapDbExperienceToExperience(data);
-  } catch {
-    return mockData.getExperienceBySlug(slug);
-  }
+export async function getExperienceByIdAsync(id: string): Promise<Experience | undefined> {
+  if (!id) return undefined;
+  if (shouldUseMockData()) return mockData.getExperienceById(id);
+
+  const { data, error } = await supabase
+    .from('experiences')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) readFailure('getExperienceByIdAsync', error);
+  return data ? mapDbExperienceToExperience(data) : undefined;
 }
 
 // ─── RESERVAS (BOOKINGS) ──────────────────────────────────────
 
 export async function getBookingsAsync(): Promise<Reservation[]> {
-  if (!isSupabaseConfigured()) {
-    return mockData.getAllReservations();
-  }
+  if (shouldUseMockData()) return mockData.getAllReservations();
 
-  try {
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*')
-      .order('check_in_date', { ascending: true });
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('*')
+    .order('check_in_date', { ascending: true });
 
-    if (error || !data || data.length === 0) {
-      return mockData.getAllReservations();
-    }
-
-    return data.map(mapDbBookingToReservation);
-  } catch {
-    return mockData.getAllReservations();
-  }
+  // Lista vazia é um resultado válido — não substituir por hóspedes fictícios.
+  if (error || !data) readFailure('getBookingsAsync', error);
+  return data.map(mapDbBookingToReservation);
 }
 
 /**
  * Retorna os IDs dos quartos com reserva conflitante para o intervalo solicitado.
  * Fórmula de sobreposição: (check_in < requestedCheckOut) AND (check_out > requestedCheckIn)
- * Reservas canceladas são ignoradas.
- * Agora também verifica bloqueios vindos de links iCal externos (Airbnb/Booking).
+ * Reservas canceladas são ignoradas. Considera bloqueios manuais e iCal externo.
+ * Em falha do banco, lança (a tela não deve exibir disponibilidade inventada).
  */
 export async function getUnavailableRoomIdsAsync(
   checkIn: string,
   checkOut: string
 ): Promise<Set<string>> {
-  // Fallback mock — mesma fórmula de sobreposição usada na trava anti-overbooking
-  const fromMock = (): Set<string> => {
-    const rooms = mockData.getRooms();
+  if (shouldUseMockData()) {
     const blocked = new Set<string>();
-
-    // Reservas internas
     mockData
       .getAllReservations()
-      .filter(
-        (res) =>
-          res.status !== 'cancelled' &&
-          res.roomId &&
-          res.checkIn < checkOut &&
-          res.checkOut > checkIn
-      )
+      .filter((res) => res.status !== 'cancelled' && res.roomId && res.checkIn < checkOut && res.checkOut > checkIn)
       .forEach((res) => blocked.add(res.roomId));
-
-    // Bloqueios manuais de quartos (mock)
     mockData
       .getAllRoomBlocks()
-      .filter(
-        (b) =>
-          b.roomId &&
-          b.startDate < checkOut &&
-          b.endDate > checkIn
-      )
+      .filter((b) => b.roomId && b.startDate < checkOut && b.endDate > checkIn)
       .forEach((b) => blocked.add(b.roomId));
-
-    // Bloqueios iCal externos (mock — sem fetch real)
-    for (const room of rooms) {
-      if (room.icalImportUrl) {
-        // Em modo mock, não fazemos fetch real — apenas marcamos se há URL configurada
-        // O fetch real acontece no servidor via fetchIcalEventsAsync
-      }
-    }
-
+    // Em modo mock não há fetch real de iCal externo
     return blocked;
-  };
-
-  if (!isSupabaseConfigured()) {
-    return fromMock();
   }
 
-  try {
-    // 1. Reservas do Supabase
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('room_id')
-      .neq('status', 'cancelled')
-      .not('room_id', 'is', null)
-      .lt('check_in_date', checkOut)
-      .gt('check_out_date', checkIn);
+  // 1. Reservas ativas
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('room_id')
+    .neq('status', 'cancelled')
+    .not('room_id', 'is', null)
+    .lt('check_in_date', checkOut)
+    .gt('check_out_date', checkIn);
 
-    const blockedRoomIds = new Set<string>(
-      error || !data ? [] : data.map((row) => row.room_id as string).filter(Boolean)
-    );
+  if (error || !data) readFailure('getUnavailableRoomIdsAsync:bookings', error);
+  const blockedRoomIds = new Set<string>(data.map((row) => row.room_id as string).filter(Boolean));
 
-    // 2. Bloqueios iCal externos
-    const { data: roomsData } = await supabase
-      .from('rooms')
-      .select('id, ical_import_url');
+  // 2. Bloqueios manuais (room_blocks)
+  const { data: blocksData, error: blocksError } = await supabase
+    .from('room_blocks')
+    .select('room_id')
+    .lt('start_date', checkOut)
+    .gt('end_date', checkIn);
 
-    if (roomsData) {
-      for (const room of roomsData) {
-        if (room.ical_import_url && room.id) {
-          try {
-            const events = await fetchIcalEventsAsync(room.ical_import_url);
-            if (hasIcalDateConflict(checkIn, checkOut, events)) {
-              blockedRoomIds.add(room.id);
-            }
-          } catch {
-            // Se o fetch falhar, ignora — não bloqueia o quarto
+  if (blocksError || !blocksData) readFailure('getUnavailableRoomIdsAsync:room_blocks', blocksError);
+  for (const row of blocksData) {
+    if (row.room_id) blockedRoomIds.add(row.room_id as string);
+  }
+
+  // 3. Bloqueios iCal externos (melhor esforço: falha de fetch não bloqueia o quarto)
+  const { data: roomsData } = await supabase.from('rooms').select('id, ical_import_url');
+  if (roomsData) {
+    for (const room of roomsData) {
+      if (room.ical_import_url && room.id) {
+        try {
+          const events = await fetchIcalEventsAsync(room.ical_import_url);
+          if (hasIcalDateConflict(checkIn, checkOut, events)) {
+            blockedRoomIds.add(room.id);
           }
+        } catch {
+          // ignora
         }
       }
     }
-
-    // 3. Bloqueios manuais de quartos (room_blocks)
-    const { data: blocksData, error: blocksError } = await supabase
-      .from('room_blocks')
-      .select('room_id')
-      .lt('start_date', checkOut)
-      .gt('end_date', checkIn);
-
-    if (!blocksError && blocksData) {
-      for (const row of blocksData) {
-        if (row.room_id) blockedRoomIds.add(row.room_id as string);
-      }
-    }
-
-    return blockedRoomIds;
-  } catch {
-    return fromMock();
   }
+
+  return blockedRoomIds;
 }
 
 /**
  * Busca e faz o parse de uma URL iCal, retornando os eventos extraídos.
  */
 export async function fetchIcalEventsAsync(url: string): Promise<IcalEvent[]> {
+  if (!isSafeExternalUrl(url)) {
+    console.warn('[fetchIcalEventsAsync] URL iCal recusada (não é https público).');
+    return [];
+  }
   try {
     const response = await fetch(url, {
       headers: { Accept: 'text/calendar, text/plain, */*' },
@@ -387,109 +323,89 @@ export async function fetchIcalEventsAsync(url: string): Promise<IcalEvent[]> {
   }
 }
 
+/**
+ * @deprecated Use createBookingAction (app/actions/booking.ts), que faz a
+ * pré-checagem de disponibilidade e trata conflitos do banco.
+ * Lança erro em falha de persistência — nunca retorna reserva mock com o
+ * Supabase configurado.
+ */
 export async function createBookingAsync(
   payload: Omit<Reservation, 'id' | 'bookingCode' | 'createdAt' | 'status'> & { status?: ReservationStatus }
 ): Promise<Reservation> {
-  if (!isSupabaseConfigured()) {
-    return mockData.createReservation(payload);
-  }
+  if (shouldUseMockData()) return mockData.createReservation(payload);
 
   const bookingCode = `AN-${Math.floor(1000 + Math.random() * 9000)}`;
+  const { data, error } = await supabase
+    .from('bookings')
+    .insert({
+      booking_code: bookingCode,
+      room_id: payload.roomId || null,
+      user_id: payload.userId || null,
+      guest_name: payload.guestName,
+      guest_email: payload.guestEmail,
+      guest_phone: payload.guestPhone,
+      check_in_date: payload.checkIn,
+      check_out_date: payload.checkOut,
+      guests: payload.guests,
+      room_price: payload.roomPrice,
+      addons_price: payload.addonsPrice,
+      discount_price: payload.discountPrice,
+      total_price: payload.totalPrice,
+      status: payload.status || 'confirmed',
+      special_requests: payload.specialRequests,
+      payment_method: payload.paymentMethod,
+      selected_addons: payload.selectedAddons as unknown as Json,
+    })
+    .select()
+    .single();
 
-  try {
-    const { data, error } = await supabase
-      .from('bookings')
-      .insert({
-        booking_code: bookingCode,
-        room_id: payload.roomId || null,
-        user_id: payload.userId || null,
-        guest_name: payload.guestName,
-        guest_email: payload.guestEmail,
-        guest_phone: payload.guestPhone,
-        check_in_date: payload.checkIn,
-        check_out_date: payload.checkOut,
-        guests: payload.guests,
-        room_price: payload.roomPrice,
-        addons_price: payload.addonsPrice,
-        discount_price: payload.discountPrice,
-        total_price: payload.totalPrice,
-        status: payload.status || 'confirmed',
-        special_requests: payload.specialRequests,
-        payment_method: payload.paymentMethod,
-        selected_addons: payload.selectedAddons as any,
-      })
-      .select()
-      .single();
-
-    if (error || !data) {
-      return mockData.createReservation(payload);
-    }
-
-    return mapDbBookingToReservation(data);
-  } catch {
-    return mockData.createReservation(payload);
-  }
+  if (error || !data) writeFailure('createBookingAsync', error);
+  return mapDbBookingToReservation(data);
 }
 
+/** Atualiza status por ID ou localizador validados (sem filtros montados com entrada do usuário). */
 export async function updateBookingStatusAsync(
-  id: string,
+  idOrCode: string,
   newStatus: ReservationStatus
 ): Promise<Reservation | undefined> {
-  if (!isSupabaseConfigured()) {
-    return mockData.updateReservationStatus(id, newStatus);
-  }
+  if (shouldUseMockData()) return mockData.updateReservationStatus(idOrCode, newStatus);
 
-  try {
-    const { data, error } = await supabase
-      .from('bookings')
-      .update({ status: newStatus })
-      .or(`id.eq.${id},booking_code.eq.${id}`)
-      .select()
-      .maybeSingle();
+  const ref = parseBookingRef(idOrCode);
+  if (!ref) return undefined;
 
-    if (error || !data) {
-      return mockData.updateReservationStatus(id, newStatus);
-    }
+  const { data, error } = await supabase
+    .from('bookings')
+    .update({ status: newStatus })
+    .eq(ref.column, ref.value)
+    .select()
+    .maybeSingle();
 
-    return mapDbBookingToReservation(data);
-  } catch {
-    return mockData.updateReservationStatus(id, newStatus);
-  }
+  if (error) writeFailure('updateBookingStatusAsync', error);
+  return data ? mapDbBookingToReservation(data) : undefined;
 }
 
 // ─── GOVERNANÇA (HOUSEKEEPING) ────────────────────────────────
 
 export async function getHousekeepingAsync(): Promise<RoomHousekeeping[]> {
-  if (!isSupabaseConfigured()) {
-    return mockData.getHousekeepingList();
-  }
+  if (shouldUseMockData()) return mockData.getHousekeepingList();
 
-  try {
-    const { data, error } = await supabase
-      .from('housekeeping')
-      .select('*');
+  const { data, error } = await supabase.from('housekeeping').select('*');
+  if (error || !data) readFailure('getHousekeepingAsync', error);
 
-    if (error || !data || data.length === 0) {
-      return mockData.getHousekeepingList();
-    }
-
-    const rooms = await getRoomsAsync();
-
-    return rooms.map((room) => {
-      const hk = data.find((item) => item.room_id === room.id);
-      return {
-        roomId: room.id,
-        roomName: room.name,
-        status: (hk?.status as HousekeepingStatus) || 'clean',
-        lastCleanedAt: hk?.last_cleaned_at || new Date().toISOString(),
-        housekeeperName: hk?.housekeeper_name || 'Equipe Anauê',
-        notes: hk?.notes || undefined,
-        maintenanceAlert: hk?.maintenance_alert || null,
-      };
-    });
-  } catch {
-    return mockData.getHousekeepingList();
-  }
+  const rooms = await getRoomsAsync();
+  // Quartos sem registro aparecem com status padrão — nunca com dados fictícios.
+  return rooms.map((room) => {
+    const hk = data.find((item) => item.room_id === room.id);
+    return {
+      roomId: room.id,
+      roomName: room.name,
+      status: (hk?.status as HousekeepingStatus) || 'clean',
+      lastCleanedAt: hk?.last_cleaned_at || new Date().toISOString(),
+      housekeeperName: hk?.housekeeper_name || 'Equipe Anauê',
+      notes: hk?.notes || undefined,
+      maintenanceAlert: hk?.maintenance_alert || null,
+    };
+  });
 }
 
 export async function updateHousekeepingAsync(
@@ -497,38 +413,30 @@ export async function updateHousekeepingAsync(
   newStatus: HousekeepingStatus,
   notes?: string
 ): Promise<RoomHousekeeping> {
-  if (!isSupabaseConfigured()) {
-    return mockData.updateRoomHousekeeping(roomId, newStatus, notes);
-  }
+  if (shouldUseMockData()) return mockData.updateRoomHousekeeping(roomId, newStatus, notes);
 
-  try {
-    const { data, error } = await supabase
-      .from('housekeeping')
-      .upsert({
-        room_id: roomId,
-        status: newStatus,
-        last_cleaned_at: new Date().toISOString(),
-        notes: notes || null,
-      })
-      .select()
-      .single();
+  const { data, error } = await supabase
+    .from('housekeeping')
+    .upsert({
+      room_id: roomId,
+      status: newStatus,
+      last_cleaned_at: new Date().toISOString(),
+      notes: notes || null,
+    })
+    .select()
+    .single();
 
-    if (error || !data) {
-      return mockData.updateRoomHousekeeping(roomId, newStatus, notes);
-    }
+  if (error || !data) writeFailure('updateHousekeepingAsync', error);
 
-    return {
-      roomId: data.room_id,
-      roomName: (await getRoomsAsync()).find((r) => r.id === roomId)?.name || 'Quarto',
-      status: data.status as HousekeepingStatus,
-      lastCleanedAt: data.last_cleaned_at,
-      housekeeperName: data.housekeeper_name,
-      notes: data.notes || undefined,
-      maintenanceAlert: data.maintenance_alert,
-    };
-  } catch {
-    return mockData.updateRoomHousekeeping(roomId, newStatus, notes);
-  }
+  return {
+    roomId: data.room_id,
+    roomName: (await getRoomByIdAsync(roomId))?.name || 'Quarto',
+    status: data.status as HousekeepingStatus,
+    lastCleanedAt: data.last_cleaned_at,
+    housekeeperName: data.housekeeper_name,
+    notes: data.notes || undefined,
+    maintenanceAlert: data.maintenance_alert,
+  };
 }
 
 // ─── COUPONS (Cupons de Desconto) ───────────────────────────
@@ -546,159 +454,119 @@ export function mapDbCouponToCoupon(dbCoupon: DbCoupon): Coupon {
   };
 }
 
+/**
+ * Cupom inexistente no banco retorna undefined. Antes, "não encontrado"
+ * caía nos cupons mock — cupons fictícios eram aceitos em produção.
+ */
 export async function getCouponByCodeAsync(code: string): Promise<Coupon | undefined> {
-  if (!isSupabaseConfigured()) {
-    return mockData.getCouponByCode(code);
-  }
+  if (shouldUseMockData()) return mockData.getCouponByCode(code);
 
-  try {
-    const { data, error } = await supabase
-      .from('coupons')
-      .select('*')
-      .eq('code', code.toUpperCase().trim())
-      .single();
+  const normalized = code.toUpperCase().trim();
+  if (!/^[A-Z0-9_-]{1,40}$/.test(normalized)) return undefined;
 
-    if (error || !data) {
-      return mockData.getCouponByCode(code);
-    }
+  const { data, error } = await supabase
+    .from('coupons')
+    .select('*')
+    .eq('code', normalized)
+    .maybeSingle();
 
-    return mapDbCouponToCoupon(data);
-  } catch {
-    return mockData.getCouponByCode(code);
-  }
+  if (error) readFailure('getCouponByCodeAsync', error);
+  return data ? mapDbCouponToCoupon(data) : undefined;
 }
 
 export async function getAllCouponsAsync(): Promise<Coupon[]> {
-  if (!isSupabaseConfigured()) {
-    return mockData.getAllCoupons();
-  }
+  if (shouldUseMockData()) return mockData.getAllCoupons();
 
-  try {
-    const { data, error } = await supabase
-      .from('coupons')
-      .select('*')
-      .order('created_at', { ascending: false });
+  const { data, error } = await supabase
+    .from('coupons')
+    .select('*')
+    .order('created_at', { ascending: false });
 
-    if (error || !data) {
-      return mockData.getAllCoupons();
-    }
-
-    return data.map(mapDbCouponToCoupon);
-  } catch {
-    return mockData.getAllCoupons();
-  }
+  if (error || !data) readFailure('getAllCouponsAsync', error);
+  return data.map(mapDbCouponToCoupon);
 }
 
 export async function createCouponAsync(coupon: Omit<Coupon, 'id' | 'createdAt'>): Promise<Coupon> {
-  if (!isSupabaseConfigured()) {
-    const newCoupon: Coupon = {
+  if (shouldUseMockData()) {
+    return {
       ...coupon,
       id: `cpn-${Date.now().toString(36)}`,
       createdAt: new Date().toISOString(),
     };
-    return newCoupon;
   }
 
-  try {
-    const { data, error } = await supabase
-      .from('coupons')
-      .insert({
-        code: coupon.code.toUpperCase().trim(),
-        discount_type: coupon.discountType,
-        discount_value: coupon.discountValue,
-        min_spend: coupon.minSpend,
-        expires_at: coupon.expiresAt,
-        is_active: coupon.isActive,
-      })
-      .select()
-      .single();
+  const { data, error } = await supabase
+    .from('coupons')
+    .insert({
+      code: coupon.code.toUpperCase().trim(),
+      discount_type: coupon.discountType,
+      discount_value: coupon.discountValue,
+      min_spend: coupon.minSpend,
+      expires_at: coupon.expiresAt,
+      is_active: coupon.isActive,
+    })
+    .select()
+    .single();
 
-    if (error || !data) {
-      throw new Error('Erro ao criar cupom');
-    }
-
-    return mapDbCouponToCoupon(data);
-  } catch {
-    throw new Error('Erro ao criar cupom no Supabase');
-  }
+  if (error || !data) writeFailure('createCouponAsync', error);
+  return mapDbCouponToCoupon(data);
 }
 
 export async function updateCouponAsync(id: string, updates: Partial<Coupon>): Promise<Coupon> {
-  if (!isSupabaseConfigured()) {
-    throw new Error('Supabase não configurado');
+  if (shouldUseMockData()) {
+    throw new Error('Atualização de cupons indisponível em modo mock.');
   }
 
-  try {
-    const dbUpdates: {
-      code?: string;
-      discount_type?: string;
-      discount_value?: number;
-      min_spend?: number;
-      expires_at?: string | null;
-      is_active?: boolean;
-    } = {};
-    if (updates.code !== undefined) dbUpdates.code = updates.code.toUpperCase().trim();
-    if (updates.discountType !== undefined) dbUpdates.discount_type = updates.discountType;
-    if (updates.discountValue !== undefined) dbUpdates.discount_value = updates.discountValue;
-    if (updates.minSpend !== undefined) dbUpdates.min_spend = updates.minSpend;
-    if (updates.expiresAt !== undefined) dbUpdates.expires_at = updates.expiresAt;
-    if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
+  const dbUpdates: {
+    code?: string;
+    discount_type?: string;
+    discount_value?: number;
+    min_spend?: number;
+    expires_at?: string | null;
+    is_active?: boolean;
+  } = {};
+  if (updates.code !== undefined) dbUpdates.code = updates.code.toUpperCase().trim();
+  if (updates.discountType !== undefined) dbUpdates.discount_type = updates.discountType;
+  if (updates.discountValue !== undefined) dbUpdates.discount_value = updates.discountValue;
+  if (updates.minSpend !== undefined) dbUpdates.min_spend = updates.minSpend;
+  if (updates.expiresAt !== undefined) dbUpdates.expires_at = updates.expiresAt;
+  if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
 
-    const { data, error } = await supabase
-      .from('coupons')
-      .update(dbUpdates)
-      .eq('id', id)
-      .select()
-      .single();
+  const { data, error } = await supabase
+    .from('coupons')
+    .update(dbUpdates)
+    .eq('id', id)
+    .select()
+    .single();
 
-    if (error || !data) {
-      throw new Error('Erro ao atualizar cupom');
-    }
-
-    return mapDbCouponToCoupon(data);
-  } catch {
-    throw new Error('Erro ao atualizar cupom no Supabase');
-  }
+  if (error || !data) writeFailure('updateCouponAsync', error);
+  return mapDbCouponToCoupon(data);
 }
 
 // ─── BLOQUEIOS MANUAIS DE QUARTOS ────────────────────────────
 
+type DbRoomBlockWithRoom = DbRoomBlock & { rooms?: { name?: string } | null };
+
 export async function getRoomBlocksAsync(): Promise<RoomBlock[]> {
-  if (!isSupabaseConfigured()) {
-    const mockBlocks = mockData.getAllRoomBlocks();
-    return mockBlocks.map((b) => ({
+  if (shouldUseMockData()) {
+    return mockData.getAllRoomBlocks().map((b) => ({
       ...b,
       roomName: mockData.getRoomById(b.roomId)?.name || 'Quarto',
     }));
   }
 
-  try {
-    const { data, error } = await supabase
-      .from('room_blocks')
-      .select(`
-        *,
-        rooms:room_id (name)
-      `)
-      .order('start_date', { ascending: false });
+  const { data, error } = await supabase
+    .from('room_blocks')
+    .select(`
+      *,
+      rooms:room_id (name)
+    `)
+    .order('start_date', { ascending: false });
 
-    if (error || !data) {
-      const mockBlocks = mockData.getAllRoomBlocks();
-      return mockBlocks.map((b) => ({
-        ...b,
-        roomName: mockData.getRoomById(b.roomId)?.name || 'Quarto',
-      }));
-    }
-
-    return (data as any[]).map((row) =>
-      mapDbRoomBlockToRoomBlock(row, row.rooms?.name)
-    );
-  } catch {
-    const mockBlocks = mockData.getAllRoomBlocks();
-    return mockBlocks.map((b) => ({
-      ...b,
-      roomName: mockData.getRoomById(b.roomId)?.name || 'Quarto',
-    }));
-  }
+  if (error || !data) readFailure('getRoomBlocksAsync', error);
+  return (data as unknown as DbRoomBlockWithRoom[]).map((row) =>
+    mapDbRoomBlockToRoomBlock(row, row.rooms?.name)
+  );
 }
 
 export async function createRoomBlockAsync(data: {
@@ -708,59 +576,43 @@ export async function createRoomBlockAsync(data: {
   reason: RoomBlockReason;
   notes?: string | null;
 }): Promise<RoomBlock> {
-  if (!isSupabaseConfigured()) {
-    return mockData.createRoomBlock(data);
-  }
+  if (shouldUseMockData()) return mockData.createRoomBlock(data);
 
-  try {
-    const { data: newBlock, error } = await supabase
-      .from('room_blocks')
-      .insert({
-        room_id: data.roomId,
-        start_date: data.startDate,
-        end_date: data.endDate,
-        reason: data.reason,
-        notes: data.notes || null,
-      })
-      .select(`
-        *,
-        rooms:room_id (name)
-      `)
-      .single();
+  const { data: newBlock, error } = await supabase
+    .from('room_blocks')
+    .insert({
+      room_id: data.roomId,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      reason: data.reason,
+      notes: data.notes || null,
+    })
+    .select(`
+      *,
+      rooms:room_id (name)
+    `)
+    .single();
 
-    if (error || !newBlock) {
-      console.error('[createRoomBlockAsync] Erro no Supabase:', error);
-      return mockData.createRoomBlock(data);
-    }
+  // Sem fallback mock: um bloqueio "fantasma" deixaria o quarto vendável.
+  if (error || !newBlock) writeFailure('createRoomBlockAsync', error);
 
-    return mapDbRoomBlockToRoomBlock(newBlock as any, (newBlock as any).rooms?.name);
-  } catch (err) {
-    console.error('[createRoomBlockAsync] Exceção:', err);
-    return mockData.createRoomBlock(data);
-  }
+  const row = newBlock as unknown as DbRoomBlockWithRoom;
+  return mapDbRoomBlockToRoomBlock(row, row.rooms?.name);
 }
 
 export async function deleteRoomBlockAsync(id: string): Promise<boolean> {
-  if (!isSupabaseConfigured()) {
-    return mockData.deleteRoomBlock(id);
+  if (shouldUseMockData()) return mockData.deleteRoomBlock(id);
+
+  const { error } = await supabase
+    .from('room_blocks')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('[deleteRoomBlockAsync] Erro no Supabase:', error);
+    return false;
   }
-
-  try {
-    const { error } = await supabase
-      .from('room_blocks')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      console.error('[deleteRoomBlockAsync] Erro no Supabase:', error);
-      return mockData.deleteRoomBlock(id);
-    }
-
-    return true;
-  } catch (err) {
-    console.error('[deleteRoomBlockAsync] Exceção:', err);
-    return mockData.deleteRoomBlock(id);
-  }
+  return true;
 }
 
 // ─── FATURAMENTO E NOTAS FISCAIS ─────────────────────────────
@@ -775,38 +627,29 @@ export async function updateBookingBillingDataAsync(
     invoiceNumber?: string | null;
   }
 ): Promise<Reservation | null> {
-  if (!isSupabaseConfigured()) {
+  if (shouldUseMockData()) {
     return mockData.updateReservationBillingData(bookingId, billingData) || null;
   }
 
-  try {
-    const updatePayload: Record<string, any> = {};
-    if (billingData.taxId !== undefined) updatePayload.tax_id = billingData.taxId;
-    if (billingData.companyName !== undefined) updatePayload.company_name = billingData.companyName;
-    if (billingData.billingAddress !== undefined) updatePayload.billing_address = billingData.billingAddress;
-    if (billingData.invoiceStatus !== undefined) updatePayload.invoice_status = billingData.invoiceStatus;
-    if (billingData.invoiceNumber !== undefined) updatePayload.invoice_number = billingData.invoiceNumber;
-    if (billingData.invoiceStatus === 'issued') {
-      updatePayload.invoice_issued_at = new Date().toISOString();
-    }
-
-    const { data, error } = await supabase
-      .from('bookings')
-      .update(updatePayload as any)
-      .eq('id', bookingId)
-      .select()
-      .single();
-
-    if (error || !data) {
-      console.error('[updateBookingBillingDataAsync] Erro no Supabase:', error);
-      return mockData.updateReservationBillingData(bookingId, billingData) || null;
-    }
-
-    return mapDbBookingToReservation(data);
-  } catch (err) {
-    console.error('[updateBookingBillingDataAsync] Exceção:', err);
-    return mockData.updateReservationBillingData(bookingId, billingData) || null;
+  const updatePayload: Database['public']['Tables']['bookings']['Update'] = {};
+  if (billingData.taxId !== undefined) updatePayload.tax_id = billingData.taxId;
+  if (billingData.companyName !== undefined) updatePayload.company_name = billingData.companyName;
+  if (billingData.billingAddress !== undefined) updatePayload.billing_address = billingData.billingAddress;
+  if (billingData.invoiceStatus !== undefined) updatePayload.invoice_status = billingData.invoiceStatus;
+  if (billingData.invoiceNumber !== undefined) updatePayload.invoice_number = billingData.invoiceNumber;
+  if (billingData.invoiceStatus === 'issued') {
+    updatePayload.invoice_issued_at = new Date().toISOString();
   }
+
+  const { data, error } = await supabase
+    .from('bookings')
+    .update(updatePayload)
+    .eq('id', bookingId)
+    .select()
+    .maybeSingle();
+
+  if (error) writeFailure('updateBookingBillingDataAsync', error);
+  return data ? mapDbBookingToReservation(data) : null;
 }
 
 export async function markInvoiceIssuedAsync(
@@ -821,22 +664,13 @@ export async function markInvoiceIssuedAsync(
 }
 
 export async function getBillingBookingsAsync(): Promise<Reservation[]> {
-  if (!isSupabaseConfigured()) {
-    return mockData.getAllReservations();
-  }
+  if (shouldUseMockData()) return mockData.getAllReservations();
 
-  try {
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*')
-      .order('created_at', { ascending: false });
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('*')
+    .order('created_at', { ascending: false });
 
-    if (error || !data) {
-      return mockData.getAllReservations();
-    }
-
-    return data.map(mapDbBookingToReservation);
-  } catch {
-    return mockData.getAllReservations();
-  }
+  if (error || !data) readFailure('getBillingBookingsAsync', error);
+  return data.map(mapDbBookingToReservation);
 }

@@ -36,15 +36,17 @@ import {
 import type { AdminKPIs, Room, RoomHousekeeping, Reservation } from '@/types';
 
 export default function AdminDashboardPage() {
+  // Sem valores fictícios iniciais: zerado até carregar os dados reais.
   const [kpis, setKpis] = useState<AdminKPIs>({
-    occupancyRate: 75,
-    occupiedRoomsCount: 3,
-    totalRoomsCount: 4,
-    pendingCheckInsCount: 2,
-    pendingCheckOutsCount: 1,
-    activeGuestsCount: 6,
-    monthlyRevenueEstimated: 35050,
+    occupancyRate: 0,
+    occupiedRoomsCount: 0,
+    totalRoomsCount: 0,
+    pendingCheckInsCount: 0,
+    pendingCheckOutsCount: 0,
+    activeGuestsCount: 0,
+    monthlyRevenueEstimated: 0,
   });
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [rooms, setRooms] = useState<Room[]>([]);
   const [housekeeping, setHousekeeping] = useState<RoomHousekeeping[]>([]);
@@ -55,17 +57,23 @@ export default function AdminDashboardPage() {
     const today = new Date().toISOString().split('T')[0];
     setTodayStr(today);
 
-    const [loadedRooms, loadedHk] = await Promise.all([
-      getRoomsAsync(),
-      getHousekeepingAsync(),
-    ]);
+    try {
+      const [loadedRooms, loadedHk, loadedBookings] = await Promise.all([
+        getRoomsAsync(),
+        getHousekeepingAsync(),
+        getBookingsAsync(),
+      ]);
 
-    setRooms(loadedRooms);
-    setHousekeeping(loadedHk);
-    setKpis(getAdminKPIs(today));
-
-    const actions = getDailyActions(today);
-    setDailyActions(actions.allToday);
+      setRooms(loadedRooms);
+      setHousekeeping(loadedHk);
+      // KPIs e ações do dia calculados sobre as reservas reais do banco
+      setKpis(getAdminKPIs(today, loadedBookings, loadedRooms));
+      setDailyActions(getDailyActions(today, loadedBookings, loadedRooms).allToday);
+      setLoadError(null);
+    } catch (err) {
+      console.error('[AdminDashboard] Falha ao carregar dados:', err);
+      setLoadError('Não foi possível carregar os dados do painel. Verifique a conexão e recarregue a página.');
+    }
   }, []);
 
   useEffect(() => {
@@ -81,6 +89,12 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-6 md:space-y-8">
+      {loadError && (
+        <div role="alert" className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {loadError}
+        </div>
+      )}
+
       {/* ── Banner de Boas-Vindas Operacional ── */}
       <div className="relative glass-dark rounded-3xl p-6 sm:p-8 border border-white/10 overflow-hidden shadow-2xl">
         <div className="absolute -right-16 -top-16 w-64 h-64 rounded-full bg-forest-500/10 blur-3xl pointer-events-none" />
