@@ -12,6 +12,7 @@ import {
   getRoomByIdAsync,
 } from '@/lib/supabaseData';
 import type { Reservation, InvoiceStatus, Room } from '@/types';
+import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
 
 async function safeRevalidatePaths(paths: string[]) {
   try {
@@ -62,6 +63,7 @@ export async function updateBookingBillingDataAction(
   bookingId: string,
   billingData: BillingDataInput
 ): Promise<InvoiceActionResult> {
+  if (!(await isStaff())) return { success: false, error: UNAUTHORIZED_MESSAGE };
   try {
     if (!bookingId) {
       return { success: false, error: 'Identificador da reserva não fornecido.' };
@@ -94,6 +96,7 @@ export async function markInvoiceAsIssuedAction(
   bookingId: string,
   invoiceNumber?: string
 ): Promise<InvoiceActionResult> {
+  if (!(await isStaff())) return { success: false, error: UNAUTHORIZED_MESSAGE };
   try {
     if (!bookingId) {
       return { success: false, error: 'Identificador da reserva não fornecido.' };
@@ -123,6 +126,7 @@ export async function markInvoiceAsIssuedAction(
  * Lista todas as reservas pagas / faturáveis
  */
 export async function getAllInvoicesAction(): Promise<InvoiceActionResult> {
+  if (!(await isStaff())) return { success: false, error: UNAUTHORIZED_MESSAGE };
   try {
     const allBookings = await getBillingBookingsAsync();
     // Ordena as mais recentes primeiro
@@ -149,6 +153,7 @@ export async function getAllInvoicesAction(): Promise<InvoiceActionResult> {
 export async function getInvoiceDataAction(
   bookingId: string
 ): Promise<{ success: boolean; data?: InvoiceDocumentData; error?: string }> {
+  if (!(await isStaff())) return { success: false, error: UNAUTHORIZED_MESSAGE };
   try {
     const allBookings = await getBillingBookingsAsync();
     const booking = allBookings.find((b) => b.id === bookingId || b.bookingCode === bookingId);

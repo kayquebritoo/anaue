@@ -8,10 +8,8 @@
 import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getRooms } from '@/lib/mockData';
-import {
-  getRoomsAsync,
-  getUnavailableRoomIdsAsync,
-} from '@/lib/supabaseData';
+import { getRoomsAsync } from '@/lib/supabaseData';
+import { fetchUnavailableRoomIds } from '@/lib/availabilityClient';
 import { SearchFiltersBar, type FilterCategory } from '@/components/search/SearchFiltersBar';
 import { VerticalRoomCard } from '@/components/search/VerticalRoomCard';
 import { BottomNav } from '@/components/layout/BottomNav';
@@ -38,12 +36,19 @@ function SearchResultsContent() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [rooms, unavailable] = await Promise.all([
-        getRoomsAsync(),
-        hasDates && checkIn && checkOut
-          ? getUnavailableRoomIdsAsync(checkIn, checkOut)
-          : Promise.resolve(new Set<string>()),
-      ]);
+      let rooms: Room[];
+      let unavailable: Set<string>;
+      try {
+        [rooms, unavailable] = await Promise.all([
+          getRoomsAsync(),
+          hasDates && checkIn && checkOut
+            ? fetchUnavailableRoomIds(checkIn, checkOut)
+            : Promise.resolve(new Set<string>()),
+        ]);
+      } catch (err) {
+        console.error('[Busca] Falha ao carregar acomodações:', err);
+        return;
+      }
       if (cancelled) return;
       setAllRooms(rooms);
       setUnavailableIds(unavailable);

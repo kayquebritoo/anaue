@@ -282,6 +282,7 @@ export const mockBookingRepository: BookingRepository = {
     }
 
     return mockData.createReservation({
+      bookingCode: row.booking_code,
       userId: row.user_id || 'anon',
       roomId: roomId || 'exp-booking-general',
       checkIn: row.check_in_date,

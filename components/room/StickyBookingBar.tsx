@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatPrice } from '@/lib/mockData';
-import { getUnavailableRoomIdsAsync } from '@/lib/supabaseData';
+import { fetchUnavailableRoomIds } from '@/lib/availabilityClient';
 import { Calendar, CalendarX, ChevronUp, Users, Minus, Plus, ArrowRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Room } from '@/types';
@@ -53,7 +53,7 @@ export function StickyBookingBar({ room, checkIn, checkOut, guests }: StickyBook
       return;
     }
     let cancelled = false;
-    getUnavailableRoomIdsAsync(editCheckIn, editCheckOut).then((unavailable) => {
+    fetchUnavailableRoomIds(editCheckIn, editCheckOut).then((unavailable) => {
       if (!cancelled) setDateConflict(unavailable.has(room.id));
     });
     return () => { cancelled = true; };

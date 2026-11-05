@@ -8,6 +8,7 @@
 import { getCouponByCodeAsync, getAllCouponsAsync, createCouponAsync, updateCouponAsync } from '@/lib/supabaseData';
 import { calculateCouponDiscount } from '@/lib/mockData';
 import type { Coupon } from '@/types';
+import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
 
 export interface ValidateCouponResult {
   valid: boolean;
@@ -60,12 +61,14 @@ export async function validateCouponAction(
 }
 
 export async function getAllCouponsAction(): Promise<Coupon[]> {
+  if (!(await isStaff())) throw new Error(UNAUTHORIZED_MESSAGE);
   return getAllCouponsAsync();
 }
 
 export async function createCouponAction(
   coupon: Omit<Coupon, 'id' | 'createdAt'>
 ): Promise<Coupon> {
+  if (!(await isStaff())) throw new Error(UNAUTHORIZED_MESSAGE);
   if (!coupon.code || !coupon.code.trim()) {
     throw new Error('Código do cupom é obrigatório.');
   }
@@ -83,5 +86,6 @@ export async function toggleCouponStatusAction(
   id: string,
   currentActive: boolean
 ): Promise<Coupon> {
+  if (!(await isStaff())) throw new Error(UNAUTHORIZED_MESSAGE);
   return updateCouponAsync(id, { isActive: !currentActive });
 }

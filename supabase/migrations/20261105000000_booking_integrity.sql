@@ -7,49 +7,63 @@
 --      (status <> 'cancelled') do mesmo quarto não podem ter períodos
 --      sobrepostos. Intervalo meio-aberto [check_in, check_out): o dia do
 --      check-out de uma reserva pode ser o check-in de outra.
---   2. CHECK: reserva de quarto precisa ter check_out > check_in.
---      (Reservas de experiência têm room_id NULL e check_in = check_out.)
+--   2. CHECKs: reserva de quarto exige check_out > check_in; bloqueio exige
+--      end_date > start_date. (Reservas de experiência têm room_id NULL.)
 --   3. Triggers com advisory lock por quarto, impedindo atomicamente:
 --      - reserva ativa sobreposta a um bloqueio (room_blocks);
 --      - bloqueio sobreposto a uma reserva ativa.
+--      SECURITY DEFINER: a checagem enxerga todas as linhas mesmo quando
+--      quem grava não tem permissão de leitura pelo RLS.
 --
 -- CÓDIGOS DE ERRO (lidos pela aplicação em lib/bookingErrors.ts)
 --   23P01  exclusion_violation  → conflito entre reservas
 --   AN001                       → reserva conflita com bloqueio de quarto
 --   AN002                       → bloqueio conflita com reserva ativa
 --   23514  check_violation      → datas inválidas
+--   22000  data_exception       → datas invertidas (daterange inválido)
 --
--- ANTES DE APLICAR EM PRODUÇÃO
---   A criação da constraint FALHA se já houver sobreposições. Rode o
---   diagnóstico abaixo e resolva os conflitos (cancelar/mover) antes:
+-- COMO APLICAR — ver supabase/migrations/README.md
+--   Este arquivo NÃO contém BEGIN/COMMIT: `supabase db push` e o SQL Editor
+--   já executam o arquivo inteiro numa única transação. Via psql use
+--   `psql -1 -f` (single transaction).
 --
+-- DIAGNÓSTICO OBRIGATÓRIO ANTES (todas devem retornar 0 linhas)
+--
+--   -- (a) reservas ativas sobrepostas
 --   SELECT a.booking_code, b.booking_code, a.room_id,
 --          a.check_in_date, a.check_out_date, b.check_in_date, b.check_out_date
 --   FROM public.bookings a
 --   JOIN public.bookings b
 --     ON a.room_id = b.room_id AND a.id < b.id
 --    AND a.status <> 'cancelled' AND b.status <> 'cancelled'
---    AND daterange(a.check_in_date, a.check_out_date, '[)')
---        && daterange(b.check_in_date, b.check_out_date, '[)');
+--    AND a.check_in_date < b.check_out_date AND b.check_in_date < a.check_out_date;
 --
+--   -- (b) reservas de quarto com datas inválidas
+--   SELECT booking_code FROM public.bookings
+--   WHERE room_id IS NOT NULL AND check_out_date <= check_in_date;
+--
+--   -- (c) bloqueios com datas inválidas
+--   SELECT id FROM public.room_blocks WHERE end_date <= start_date;
+--
+--   -- (d) reservas ativas sobre bloqueios (não impede a migration, mas deve
+--   --     ser resolvido: são overbookings que já existem)
 --   SELECT bk.booking_code, rb.id AS block_id, bk.room_id
 --   FROM public.bookings bk
 --   JOIN public.room_blocks rb
 --     ON rb.room_id = bk.room_id AND bk.status <> 'cancelled'
---    AND daterange(bk.check_in_date, bk.check_out_date, '[)')
---        && daterange(rb.start_date, rb.end_date, '[)');
+--    AND bk.check_in_date < rb.end_date AND rb.start_date < bk.check_out_date;
 --
---   SELECT booking_code FROM public.bookings
---   WHERE room_id IS NOT NULL AND check_out_date <= check_in_date;
---
--- A migration é transacional: se qualquer passo falhar, nada é aplicado.
+-- LOCKS: ADD CONSTRAINT ... EXCLUDE toma ACCESS EXCLUSIVE em bookings
+-- enquanto cria o índice GiST (tabela pequena: segundos). lock_timeout
+-- evita ficar na fila atrás de transações longas — se estourar, reexecute.
 -- ============================================================
 
-BEGIN;
+SET lock_timeout = '10s';
 
-CREATE EXTENSION IF NOT EXISTS btree_gist;
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA extensions;
 
--- ─── 1. Datas coerentes para reservas de quarto ──────────────
+-- ─── 1. Datas coerentes ──────────────────────────────────────
 ALTER TABLE public.bookings
   DROP CONSTRAINT IF EXISTS bookings_room_dates_valid;
 ALTER TABLE public.bookings
@@ -77,16 +91,19 @@ ALTER TABLE public.bookings
 -- Ambos os triggers obtêm o MESMO advisory lock transacional do quarto
 -- antes de checar a outra tabela, então uma reserva e um bloqueio
 -- concorrentes para o mesmo quarto nunca passam ambos pela verificação.
+-- search_path vazio + nomes qualificados: sem sequestro de search_path.
 
 CREATE OR REPLACE FUNCTION public.anaue_room_lock_key(p_room_id TEXT)
 RETURNS BIGINT
 LANGUAGE sql IMMUTABLE
-AS $$ SELECT hashtextextended('anaue_room:' || p_room_id, 0) $$;
+SET search_path = ''
+AS $$ SELECT pg_catalog.hashtextextended('anaue_room:' || p_room_id, 0) $$;
 
 CREATE OR REPLACE FUNCTION public.anaue_bookings_check_room_blocks()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-SET search_path = public
+SECURITY DEFINER
+SET search_path = ''
 AS $$
 DECLARE
   v_block_id TEXT;
@@ -104,13 +121,13 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  PERFORM pg_advisory_xact_lock(public.anaue_room_lock_key(NEW.room_id));
+  PERFORM pg_catalog.pg_advisory_xact_lock(public.anaue_room_lock_key(NEW.room_id));
 
   SELECT rb.id INTO v_block_id
   FROM public.room_blocks rb
   WHERE rb.room_id = NEW.room_id
-    AND daterange(rb.start_date, rb.end_date, '[)')
-        && daterange(NEW.check_in_date, NEW.check_out_date, '[)')
+    AND rb.start_date < NEW.check_out_date
+    AND NEW.check_in_date < rb.end_date
   LIMIT 1;
 
   IF v_block_id IS NOT NULL THEN
@@ -132,19 +149,20 @@ CREATE TRIGGER trg_bookings_check_room_blocks
 CREATE OR REPLACE FUNCTION public.anaue_room_blocks_check_bookings()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-SET search_path = public
+SECURITY DEFINER
+SET search_path = ''
 AS $$
 DECLARE
   v_booking_code TEXT;
 BEGIN
-  PERFORM pg_advisory_xact_lock(public.anaue_room_lock_key(NEW.room_id));
+  PERFORM pg_catalog.pg_advisory_xact_lock(public.anaue_room_lock_key(NEW.room_id));
 
   SELECT b.booking_code INTO v_booking_code
   FROM public.bookings b
   WHERE b.room_id = NEW.room_id
     AND b.status <> 'cancelled'
-    AND daterange(b.check_in_date, b.check_out_date, '[)')
-        && daterange(NEW.start_date, NEW.end_date, '[)')
+    AND b.check_in_date < NEW.end_date
+    AND NEW.start_date < b.check_out_date
   LIMIT 1;
 
   IF v_booking_code IS NOT NULL THEN
@@ -163,4 +181,18 @@ CREATE TRIGGER trg_room_blocks_check_bookings
   FOR EACH ROW
   EXECUTE FUNCTION public.anaue_room_blocks_check_bookings();
 
-COMMIT;
+-- Funções de trigger não devem ser chamadas diretamente via API (/rpc)
+REVOKE ALL ON FUNCTION public.anaue_bookings_check_room_blocks() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.anaue_room_blocks_check_bookings() FROM PUBLIC;
+DO $$
+DECLARE r TEXT;
+BEGIN
+  FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = r) THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION public.anaue_bookings_check_room_blocks() FROM %I', r);
+      EXECUTE format('REVOKE ALL ON FUNCTION public.anaue_room_blocks_check_bookings() FROM %I', r);
+    END IF;
+  END LOOP;
+END $$;
+
+RESET lock_timeout;

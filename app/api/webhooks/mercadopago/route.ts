@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPaymentStatus, isPaymentApproved } from '@/lib/mercadopago';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import * as mockData from '@/lib/mockData';
+import { isMockDataAllowed } from '@/lib/dataMode';
+import { verifyMercadoPagoSignature } from '@/lib/mercadopagoSignature';
+import { normalizeBookingId } from '@/lib/queryInput';
 
 /**
  * POST /api/webhooks/mercadopago
@@ -22,23 +25,20 @@ export async function POST(request: NextRequest) {
     const url = new URL(request.url);
 
     // ── Verificação de Assinatura HMAC-SHA256 do Mercado Pago ──────────────
-    // Protege contra replay attacks e notificações forjadas.
-    // Configurar MP_WEBHOOK_SECRET no painel do Mercado Pago → Webhooks.
-    const mpSecret = process.env.MP_WEBHOOK_SECRET;
-    const xSignature = request.headers.get('x-signature');
-    const xRequestId = request.headers.get('x-request-id');
-
-    if (mpSecret && xSignature) {
-      const dataId = url.searchParams.get('data.id') || '';
-      const manifest = `id:${dataId};request-id:${xRequestId};`;
-      const { createHmac } = await import('crypto');
-      const expectedHash = createHmac('sha256', mpSecret).update(manifest).digest('hex');
-      // Header formato: "ts=1234567890,v1=HASH_HEX"
-      const v1 = xSignature.split(',').find((p) => p.startsWith('v1='))?.slice(3);
-      if (!v1 || v1 !== expectedHash) {
-        console.warn('[Webhook MP] Assinatura inválida — possível replay attack.');
-        return NextResponse.json({ error: 'Assinatura inválida.' }, { status: 401 });
-      }
+    // Com MP_WEBHOOK_SECRET configurado, a assinatura é obrigatória (antes,
+    // omitir o header x-signature pulava a verificação).
+    const signature = verifyMercadoPagoSignature({
+      secret: process.env.MP_WEBHOOK_SECRET,
+      xSignature: request.headers.get('x-signature'),
+      xRequestId: request.headers.get('x-request-id'),
+      dataId: url.searchParams.get('data.id') || url.searchParams.get('id'),
+    });
+    if (signature === 'invalid') {
+      console.warn('[Webhook MP] Assinatura ausente ou inválida.');
+      return NextResponse.json({ error: 'Assinatura inválida.' }, { status: 401 });
+    }
+    if (signature === 'not_configured' && process.env.MP_ACCESS_TOKEN) {
+      console.warn('[Webhook MP] MP_WEBHOOK_SECRET não configurado — notificações não são autenticadas.');
     }
     // ── Fim verificação HMAC ───────────────────────────────────────────────
 
@@ -85,7 +85,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const bookingId = payment.external_reference;
+    const bookingId = normalizeBookingId(payment.external_reference);
+    if (!bookingId) {
+      return NextResponse.json({ error: 'external_reference inválida.' }, { status: 400 });
+    }
 
     // Se pagamento aprovado, confirmar reserva
     if (isPaymentApproved(payment.status)) {
@@ -103,8 +106,8 @@ export async function POST(request: NextRequest) {
             { status: 500 }
           );
         }
-      } else {
-        // Mock: atualizar localmente
+      } else if (isMockDataAllowed()) {
+        // Mock: atualizar localmente (somente dev/demo)
         mockData.updateReservationStatus(bookingId, 'confirmed');
       }
     }

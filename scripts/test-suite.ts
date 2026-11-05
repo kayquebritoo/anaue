@@ -187,7 +187,9 @@ async function main() {
     const result = await lookupBookingAction('lucas.silveira@email.com');
     assert(result.success === true, `Busca por e-mail falhou: ${result.error}`);
     assert(result.reservation !== undefined, 'Reserva não retornada');
-    assert(result.reservation!.guestEmail === 'lucas.silveira@email.com', 'E-mail não confere');
+    // Consulta pública devolve o e-mail mascarado (proteção de dados pessoais)
+    assert(/^lu\*+@email\.com$/.test(result.reservation!.guestEmail), 'E-mail deveria vir mascarado');
+    assert(result.reservation!.guestDocument == null, 'Documento não deve ser exposto');
   });
 
   await runTest('Busca por código inexistente deve retornar falha', async () => {

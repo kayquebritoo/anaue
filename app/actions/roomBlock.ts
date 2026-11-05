@@ -14,6 +14,7 @@ import {
 } from '@/lib/supabaseData';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import * as mockData from '@/lib/mockData';
+import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
 import { BOOKING_MESSAGES, classifyDbError } from '@/lib/bookingErrors';
 import type { RoomBlock, RoomBlockReason } from '@/types';
 
@@ -49,6 +50,7 @@ export interface RoomBlockActionResult {
 export async function createRoomBlockAction(
   input: CreateRoomBlockInput
 ): Promise<RoomBlockActionResult> {
+  if (!(await isStaff())) return { success: false, error: UNAUTHORIZED_MESSAGE };
   try {
     const { roomId, startDate, endDate, reason, notes } = input;
 
@@ -172,6 +174,7 @@ export async function createRoomBlockAction(
 export async function deleteRoomBlockAction(
   blockId: string
 ): Promise<RoomBlockActionResult> {
+  if (!(await isStaff())) return { success: false, error: UNAUTHORIZED_MESSAGE };
   try {
     if (!blockId) {
       return { success: false, error: 'Identificador do bloqueio não fornecido.' };
@@ -205,6 +208,8 @@ export async function deleteRoomBlockAction(
  * Retorna todos os bloqueios cadastrados com os dados do quarto relacionados.
  */
 export async function getAllRoomBlocksAction(): Promise<RoomBlockActionResult> {
+  // Observações internas dos bloqueios: somente equipe
+  if (!(await isStaff())) return { success: false, error: UNAUTHORIZED_MESSAGE };
   try {
     const blocks = await getRoomBlocksAsync();
     return {

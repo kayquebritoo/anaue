@@ -275,9 +275,9 @@ export function getReservationsByEmail(email: string): Reservation[] {
   return all.filter((res) => res.guestEmail.toLowerCase() === normalized);
 }
 
-export function createReservation(payload: Omit<Reservation, 'id' | 'bookingCode' | 'createdAt' | 'status'> & { status?: ReservationStatus }): Reservation {
-  const newId = `res-${Date.now().toString(36)}`;
-  const bookingCode = `AN-${Math.floor(1000 + Math.random() * 9000)}`;
+export function createReservation(payload: Omit<Reservation, 'id' | 'bookingCode' | 'createdAt' | 'status'> & { status?: ReservationStatus; bookingCode?: string }): Reservation {
+  const newId = `res-${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
+  const bookingCode = payload.bookingCode || `AN-${Math.floor(1000 + Math.random() * 9000)}`;
 
   const newReservation: Reservation = {
     ...payload,
@@ -398,10 +398,18 @@ export function updateRoomHousekeeping(
 
 // ─── KPIs & Dashboard PMS ────────────────────────────────────
 
-export function getAdminKPIs(targetDateStr?: string): AdminKPIs {
-  const allReservations = getStoredReservations();
+/**
+ * KPIs do painel. Recebe as reservas e quartos REAIS (do Supabase); os
+ * valores padrão (store mock) só se aplicam em desenvolvimento/testes.
+ */
+export function getAdminKPIs(
+  targetDateStr?: string,
+  sourceReservations: Reservation[] = getStoredReservations(),
+  sourceRooms: Pick<Room, 'id'>[] = rooms
+): AdminKPIs {
+  const allReservations = sourceReservations;
   const targetDate = targetDateStr || new Date().toISOString().split('T')[0];
-  const totalRooms = rooms.length; // 4 quartos reais
+  const totalRooms = sourceRooms.length;
 
   // Reservas ativas hoje (check-in <= targetDate e check-out > targetDate e status != cancelled)
   const activeToday = allReservations.filter((r) => {
@@ -441,16 +449,21 @@ export function getAdminKPIs(targetDateStr?: string): AdminKPIs {
   };
 }
 
-export function getDailyActions(targetDateStr?: string) {
-  const allReservations = getStoredReservations();
+export function getDailyActions(
+  targetDateStr?: string,
+  sourceReservations: Reservation[] = getStoredReservations(),
+  sourceRooms: Pick<Room, 'id' | 'name'>[] = rooms
+) {
+  const allReservations = sourceReservations;
   const targetDate = targetDateStr || new Date().toISOString().split('T')[0];
+  const roomName = (id: string) => sourceRooms.find((r) => r.id === id)?.name || 'Quarto';
 
   const checkIns = allReservations
     .filter((r) => r.checkIn === targetDate && r.status !== 'cancelled')
     .map((r) => ({
       ...r,
       actionType: 'check_in' as const,
-      roomName: getRoomById(r.roomId)?.name || 'Quarto',
+      roomName: roomName(r.roomId),
     }));
 
   const checkOuts = allReservations
@@ -458,7 +471,7 @@ export function getDailyActions(targetDateStr?: string) {
     .map((r) => ({
       ...r,
       actionType: 'check_out' as const,
-      roomName: getRoomById(r.roomId)?.name || 'Quarto',
+      roomName: roomName(r.roomId),
     }));
 
   const inHouse = allReservations
@@ -466,7 +479,7 @@ export function getDailyActions(targetDateStr?: string) {
     .map((r) => ({
       ...r,
       actionType: 'in_house' as const,
-      roomName: getRoomById(r.roomId)?.name || 'Quarto',
+      roomName: roomName(r.roomId),
     }));
 
   return {

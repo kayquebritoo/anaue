@@ -8,6 +8,9 @@
 import { createPixPayment, getPaymentStatus, type PixPaymentResponse } from '@/lib/mercadopago';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import * as mockData from '@/lib/mockData';
+import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
+import { normalizeBookingId } from '@/lib/queryInput';
+import { isIntegrationMockAllowed } from '@/lib/dataMode';
 
 export interface CreatePixPaymentResult {
   success: boolean;
@@ -26,11 +29,18 @@ export async function createPixPaymentAction(
   bookingId: string,
   amount: number,
   email: string,
+  // Mantido por compatibilidade com o checkout; a descrição real usa o localizador gravado.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   description: string
 ): Promise<CreatePixPaymentResult> {
   // Verificar se MP_ACCESS_TOKEN está configurado
   if (!process.env.MP_ACCESS_TOKEN) {
-    // Modo mock: simular pagamento PIX sem Mercado Pago real
+    // Em produção, nunca exibir QR Code PIX falso ao hóspede
+    if (!isIntegrationMockAllowed()) {
+      console.error('[createPixPaymentAction] MP_ACCESS_TOKEN ausente em produção.');
+      return { success: false, error: 'Pagamento PIX indisponível no momento. Sua reserva foi registrada; entre em contato para concluir o pagamento.' };
+    }
+    // Modo mock (desenvolvimento): simular pagamento PIX sem Mercado Pago real
     const mockQrCode = `00020126580014br.gov.bcb.pix0136${bookingId}@anaue.com.br5204000053039865${amount.toFixed(2)}5802BR5925ANAU AMAZONIA ECOLODGE6009SAO PAULO62070503***6304`;
     const mockBase64 = generateMockQrCodeBase64();
 
@@ -44,12 +54,33 @@ export async function createPixPaymentAction(
     };
   }
 
+  // Valor e e-mail vêm da reserva gravada — nunca do cliente (evita pagar
+  // um valor diferente do registrado e ter a reserva confirmada pelo webhook).
+  const safeId = normalizeBookingId(bookingId);
+  if (!safeId || !isSupabaseConfigured()) {
+    return { success: false, error: 'Reserva inválida para pagamento.' };
+  }
+  const { data: booking, error: bookingError } = await supabase
+    .from('bookings')
+    .select('id, booking_code, total_price, guest_email, status')
+    .eq('id', safeId)
+    .maybeSingle();
+  if (bookingError || !booking) {
+    return { success: false, error: 'Reserva não encontrada para pagamento.' };
+  }
+  if (booking.status !== 'pending') {
+    return { success: false, error: 'Esta reserva não está aguardando pagamento.' };
+  }
+  if (Number(booking.total_price) !== Number(amount)) {
+    console.warn('[createPixPaymentAction] Valor enviado pelo cliente difere do registrado; usando o valor da reserva.');
+  }
+
   try {
     const payment = await createPixPayment({
-      amount,
-      description,
-      email,
-      externalReference: bookingId,
+      amount: Number(booking.total_price),
+      description: `Reserva Anauê — ${booking.booking_code}`,
+      email: booking.guest_email || email,
+      externalReference: booking.id,
     });
 
     // Extrair QR code da resposta
@@ -111,11 +142,16 @@ export async function checkPaymentStatusAction(
 export async function confirmBookingPayment(
   bookingId: string
 ): Promise<{ success: boolean; error?: string }> {
+  // Sem esta checagem, qualquer pessoa confirmaria uma reserva sem pagar.
+  if (!(await isStaff())) return { success: false, error: UNAUTHORIZED_MESSAGE };
+  const safeId = normalizeBookingId(bookingId);
+  if (!safeId) return { success: false, error: 'ID da reserva inválido.' };
+
   if (isSupabaseConfigured()) {
     const { error } = await supabase
       .from('bookings')
       .update({ status: 'confirmed' })
-      .eq('id', bookingId)
+      .eq('id', safeId)
       .eq('status', 'pending'); // Só atualiza se ainda estiver pendente
 
     if (error) {
@@ -123,7 +159,7 @@ export async function confirmBookingPayment(
     }
   } else {
     // Mock: atualizar status localmente
-    mockData.updateReservationStatus(bookingId, 'confirmed');
+    mockData.updateReservationStatus(safeId, 'confirmed');
   }
 
   return { success: true };

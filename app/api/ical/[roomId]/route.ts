@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import * as mockData from '@/lib/mockData';
+import { isMockDataAllowed } from '@/lib/dataMode';
+import { createHash } from 'node:crypto';
+
+// O feed é público (Airbnb/Booking assinam esta URL): não expõe nome do
+// hóspede nem localizador — apenas períodos ocupados com UID opaco.
+function opaqueUid(bookingId: string): string {
+  return createHash('sha256').update(`anaue-ical:${bookingId}`).digest('hex').slice(0, 24);
+}
 
 /**
  * GET /api/ical/[roomId]
@@ -14,7 +22,11 @@ export async function GET(
   const { roomId } = await params;
 
   let roomName = 'Quarto Anauê';
-  let reservations: { checkIn: string; checkOut: string; guestName: string; bookingCode: string }[] = [];
+  if (!/^[a-z0-9-]{1,64}$/i.test(roomId)) {
+    return NextResponse.json({ error: 'Quarto inválido.' }, { status: 400 });
+  }
+
+  let reservations: { id: string; checkIn: string; checkOut: string }[] = [];
 
   if (isSupabaseConfigured()) {
     const { data: room } = await supabase
@@ -25,21 +37,25 @@ export async function GET(
 
     if (room) roomName = room.name;
 
-    const { data: bookings } = await supabase
+    const { data: bookings, error } = await supabase
       .from('bookings')
-      .select('check_in_date, check_out_date, guest_name, booking_code')
+      .select('id, check_in_date, check_out_date')
       .eq('room_id', roomId)
       .neq('status', 'cancelled');
 
-    if (bookings) {
-      reservations = bookings.map((b) => ({
-        checkIn: b.check_in_date,
-        checkOut: b.check_out_date,
-        guestName: b.guest_name,
-        bookingCode: b.booking_code,
-      }));
+    if (error || !bookings) {
+      // Nunca publicar calendário vazio por falha do banco: as plataformas
+      // externas liberariam as datas (overbooking via Airbnb/Booking).
+      console.error('[iCal export] Falha ao ler reservas:', error);
+      return NextResponse.json({ error: 'Calendário temporariamente indisponível.' }, { status: 503 });
     }
-  } else {
+
+    reservations = bookings.map((b) => ({
+      id: b.id,
+      checkIn: b.check_in_date,
+      checkOut: b.check_out_date,
+    }));
+  } else if (isMockDataAllowed()) {
     const room = mockData.getRoomById(roomId);
     if (room) roomName = room.name;
 
@@ -47,11 +63,12 @@ export async function GET(
       .getAllReservations()
       .filter((r) => r.roomId === roomId && r.status !== 'cancelled')
       .map((r) => ({
+        id: r.id,
         checkIn: r.checkIn,
         checkOut: r.checkOut,
-        guestName: r.guestName,
-        bookingCode: r.bookingCode,
       }));
+  } else {
+    return NextResponse.json({ error: 'Calendário temporariamente indisponível.' }, { status: 503 });
   }
 
   // Gerar conteúdo iCal
@@ -74,9 +91,8 @@ export async function GET(
       'BEGIN:VEVENT',
       `DTSTART:${dtStart}`,
       `DTEND:${dtEnd}`,
-      `SUMMARY:${roomName} - Reservado (${res.bookingCode})`,
-      `DESCRIPTION:Reserva ${res.bookingCode} - ${res.guestName}`,
-      `UID:${res.bookingCode}@anaue-pms`,
+      `SUMMARY:${roomName} - Reservado`,
+      `UID:${opaqueUid(res.id)}@anaue-pms`,
       `DTSTAMP:${now}`,
       'STATUS:CONFIRMED',
       'TRANSP:OPAQUE',
