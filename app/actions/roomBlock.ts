@@ -14,6 +14,7 @@ import {
 } from '@/lib/supabaseData';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import * as mockData from '@/lib/mockData';
+import { BOOKING_MESSAGES, classifyDbError } from '@/lib/bookingErrors';
 import type { RoomBlock, RoomBlockReason } from '@/types';
 
 async function safeRevalidatePaths(paths: string[]) {
@@ -87,7 +88,16 @@ export async function createRoomBlockAction(
         .lt('check_in_date', endDate)
         .gt('check_out_date', startDate);
 
-      if (!checkError && overlappingBookings && overlappingBookings.length > 0) {
+      if (checkError || !overlappingBookings) {
+        // Fail-closed: sem conseguir verificar reservas, não cria o bloqueio
+        console.error('[createRoomBlockAction] Falha ao consultar reservas:', checkError);
+        return {
+          success: false,
+          error: 'Não foi possível verificar as reservas do quarto agora. Tente novamente.',
+        };
+      }
+
+      if (overlappingBookings.length > 0) {
         const codes = overlappingBookings.map((b) => b.booking_code).join(', ');
         return {
           success: false,
@@ -111,14 +121,27 @@ export async function createRoomBlockAction(
       }
     }
 
-    // 4. Criação do Bloqueio
-    const newBlock = await createRoomBlockAsync({
-      roomId,
-      startDate,
-      endDate,
-      reason: reason || 'maintenance',
-      notes: notes?.trim() || null,
-    });
+    // 4. Criação do Bloqueio (o banco revalida atomicamente — trigger AN002)
+    let newBlock: RoomBlock;
+    try {
+      newBlock = await createRoomBlockAsync({
+        roomId,
+        startDate,
+        endDate,
+        reason: reason || 'maintenance',
+        notes: notes?.trim() || null,
+      });
+    } catch (err) {
+      const kind = classifyDbError(err);
+      if (kind === 'block_conflicts_with_booking') {
+        return { success: false, error: BOOKING_MESSAGES.blockConflictsWithBooking };
+      }
+      console.error('[createRoomBlockAction] Falha ao persistir bloqueio:', err);
+      return {
+        success: false,
+        error: 'Não foi possível salvar o bloqueio do quarto. Nenhum bloqueio foi criado. Tente novamente.',
+      };
+    }
 
     // 5. Revalidação das rotas do painel e catálogo
     await safeRevalidatePaths([

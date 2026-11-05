@@ -7,6 +7,8 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import * as mockData from '@/lib/mockData';
 import { hasIcalDateConflict, parseIcalEvents, type IcalEvent } from '@/lib/icalParser';
+import { isMockDataAllowed } from '@/lib/dataMode';
+import { BookingDbError } from '@/lib/bookingErrors';
 import type { Room, Experience, Reservation, RoomHousekeeping, ReservationStatus, HousekeepingStatus, Coupon, RoomBlock, RoomBlockReason, InvoiceStatus } from '@/types';
 import type { DbRoom, DbExperience, DbBooking, DbCoupon, DbHousekeeping, DbRoomBlock } from '@/types/database';
 
@@ -387,10 +389,17 @@ export async function fetchIcalEventsAsync(url: string): Promise<IcalEvent[]> {
   }
 }
 
+/**
+ * @deprecated Use createBookingAction (app/actions/booking.ts), que faz a
+ * pré-checagem de disponibilidade e trata conflitos do banco.
+ * Lança erro em falha de persistência — nunca retorna reserva mock com o
+ * Supabase configurado.
+ */
 export async function createBookingAsync(
   payload: Omit<Reservation, 'id' | 'bookingCode' | 'createdAt' | 'status'> & { status?: ReservationStatus }
 ): Promise<Reservation> {
   if (!isSupabaseConfigured()) {
+    if (!isMockDataAllowed()) throw new Error('Supabase não configurado.');
     return mockData.createReservation(payload);
   }
 
@@ -422,12 +431,14 @@ export async function createBookingAsync(
       .single();
 
     if (error || !data) {
-      return mockData.createReservation(payload);
+      console.error('[createBookingAsync] Erro no Supabase:', error);
+      throw new BookingDbError(error?.message || 'Insert de reserva sem retorno', error?.code);
     }
 
     return mapDbBookingToReservation(data);
-  } catch {
-    return mockData.createReservation(payload);
+  } catch (err) {
+    if (err instanceof BookingDbError) throw err;
+    throw new BookingDbError(err instanceof Error ? err.message : 'Falha ao criar reserva');
   }
 }
 
@@ -436,25 +447,22 @@ export async function updateBookingStatusAsync(
   newStatus: ReservationStatus
 ): Promise<Reservation | undefined> {
   if (!isSupabaseConfigured()) {
-    return mockData.updateReservationStatus(id, newStatus);
+    return isMockDataAllowed() ? mockData.updateReservationStatus(id, newStatus) : undefined;
   }
 
-  try {
-    const { data, error } = await supabase
-      .from('bookings')
-      .update({ status: newStatus })
-      .or(`id.eq.${id},booking_code.eq.${id}`)
-      .select()
-      .maybeSingle();
+  const { data, error } = await supabase
+    .from('bookings')
+    .update({ status: newStatus })
+    .or(`id.eq.${id},booking_code.eq.${id}`)
+    .select()
+    .maybeSingle();
 
-    if (error || !data) {
-      return mockData.updateReservationStatus(id, newStatus);
-    }
-
-    return mapDbBookingToReservation(data);
-  } catch {
-    return mockData.updateReservationStatus(id, newStatus);
+  if (error) {
+    console.error('[updateBookingStatusAsync] Erro no Supabase:', error);
+    throw new BookingDbError(error.message, error.code);
   }
+
+  return data ? mapDbBookingToReservation(data) : undefined;
 }
 
 // ─── GOVERNANÇA (HOUSEKEEPING) ────────────────────────────────
@@ -709,40 +717,37 @@ export async function createRoomBlockAsync(data: {
   notes?: string | null;
 }): Promise<RoomBlock> {
   if (!isSupabaseConfigured()) {
+    if (!isMockDataAllowed()) throw new Error('Supabase não configurado.');
     return mockData.createRoomBlock(data);
   }
 
-  try {
-    const { data: newBlock, error } = await supabase
-      .from('room_blocks')
-      .insert({
-        room_id: data.roomId,
-        start_date: data.startDate,
-        end_date: data.endDate,
-        reason: data.reason,
-        notes: data.notes || null,
-      })
-      .select(`
-        *,
-        rooms:room_id (name)
-      `)
-      .single();
+  const { data: newBlock, error } = await supabase
+    .from('room_blocks')
+    .insert({
+      room_id: data.roomId,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      reason: data.reason,
+      notes: data.notes || null,
+    })
+    .select(`
+      *,
+      rooms:room_id (name)
+    `)
+    .single();
 
-    if (error || !newBlock) {
-      console.error('[createRoomBlockAsync] Erro no Supabase:', error);
-      return mockData.createRoomBlock(data);
-    }
-
-    return mapDbRoomBlockToRoomBlock(newBlock as any, (newBlock as any).rooms?.name);
-  } catch (err) {
-    console.error('[createRoomBlockAsync] Exceção:', err);
-    return mockData.createRoomBlock(data);
+  if (error || !newBlock) {
+    // Sem fallback mock: um bloqueio "fantasma" deixaria o quarto vendável.
+    console.error('[createRoomBlockAsync] Erro no Supabase:', error);
+    throw new BookingDbError(error?.message || 'Insert de bloqueio sem retorno', error?.code);
   }
+
+  return mapDbRoomBlockToRoomBlock(newBlock as any, (newBlock as any).rooms?.name);
 }
 
 export async function deleteRoomBlockAsync(id: string): Promise<boolean> {
   if (!isSupabaseConfigured()) {
-    return mockData.deleteRoomBlock(id);
+    return isMockDataAllowed() ? mockData.deleteRoomBlock(id) : false;
   }
 
   try {
@@ -753,13 +758,13 @@ export async function deleteRoomBlockAsync(id: string): Promise<boolean> {
 
     if (error) {
       console.error('[deleteRoomBlockAsync] Erro no Supabase:', error);
-      return mockData.deleteRoomBlock(id);
+      return false;
     }
 
     return true;
   } catch (err) {
     console.error('[deleteRoomBlockAsync] Exceção:', err);
-    return mockData.deleteRoomBlock(id);
+    return false;
   }
 }
 

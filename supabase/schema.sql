@@ -1,6 +1,9 @@
 -- ============================================================
 -- Anauê Amazônia PMS — Schema Relacional PostgreSQL (Supabase)
 -- Sprint 6: Tabelas rooms, experiences, bookings, housekeeping
+--
+-- IMPORTANTE: após este arquivo, aplique as migrations de
+-- supabase/migrations/ (ex.: anti-overbooking). Ver README da pasta.
 -- ============================================================
 
 -- 1. Extensões úteis
