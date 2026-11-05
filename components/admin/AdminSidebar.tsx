@@ -25,6 +25,7 @@ import {
   LogOut,
   Ban,
   Receipt,
+  Settings,
 } from 'lucide-react';
 import { logoutAction } from '@/app/actions/auth';
 
@@ -85,6 +86,11 @@ const NAV_ITEMS: NavItem[] = [
     href: '/admin/governanca',
     label: 'Governança',
     icon: Sparkles,
+  },
+  {
+    href: '/admin/configuracoes/pagamentos',
+    label: 'Configurações',
+    icon: Settings,
   },
 ];
 

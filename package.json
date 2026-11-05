@@ -10,12 +10,13 @@
     "test:pms": "tsx scripts/test-suite.ts",
     "test:booking": "tsx --test scripts/test-booking-integrity.ts",
     "test:security": "tsx --test scripts/test-security.ts",
-    "test": "tsx --test scripts/test-booking-integrity.ts scripts/test-security.ts scripts/test-pricing.ts scripts/test-launch.ts",
+    "test": "tsx --test scripts/test-booking-integrity.ts scripts/test-security.ts scripts/test-pricing.ts scripts/test-launch.ts scripts/test-payment-settings.ts",
     "test:pricing": "tsx --test scripts/test-pricing.ts",
     "test:staging": "tsx --test scripts/test-staging.ts",
     "check-env": "node scripts/check-env.mjs",
     "test:launch": "tsx --test scripts/test-launch.ts",
-    "test:compat": "tsx --test scripts/test-compat.ts"
+    "test:compat": "tsx --test scripts/test-compat.ts",
+    "test:payment-settings": "tsx --test scripts/test-payment-settings.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

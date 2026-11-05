@@ -4,6 +4,8 @@ import { isMockDataAllowed } from '@/lib/dataMode';
 import { mercadoPagoGateway } from '@/lib/payments/mercadopago';
 import { confirmBookingFromPayment } from '@/lib/paymentConfirmation';
 import { sendPaymentConfirmedEmail } from '@/lib/bookingNotifications';
+import { recordPaymentEvent } from '@/lib/payments/events';
+import { getPaymentIntegrationStatus } from '@/lib/payments/diagnostics';
 import { supabaseConfirmationRepository, mockConfirmationRepository } from '@/lib/paymentConfirmationRepo';
 
 /**
@@ -30,6 +32,7 @@ export async function POST(request: NextRequest) {
     const signature = mercadoPagoGateway.verifyWebhook({ headers: request.headers, url });
     if (signature === 'invalid') {
       console.warn('[Webhook MP] Assinatura ausente ou inválida.');
+      await recordPaymentEvent({ type: 'webhook_rejected', environment: getPaymentIntegrationStatus().environment, paymentId: url.searchParams.get('data.id') || url.searchParams.get('id'), outcome: 'invalid_signature', detail: 'Assinatura ausente ou inválida' });
       return NextResponse.json({ error: 'Assinatura inválida.' }, { status: 401 });
     }
     if (signature === 'not_configured' && process.env.MP_ACCESS_TOKEN) {
@@ -91,6 +94,16 @@ export async function POST(request: NextRequest) {
     }
     const result = await confirmBookingFromPayment(payment, repo);
     const bookingId = result.bookingId ?? null;
+
+    await recordPaymentEvent({
+      type: 'webhook',
+      environment: getPaymentIntegrationStatus().environment,
+      paymentId: payment.id,
+      bookingId: result.bookingId ?? null,
+      paymentStatus: payment.status,
+      outcome: result.outcome,
+      amount: Number(payment.transaction_amount),
+    });
 
     // E-mail de confirmação só após validação do pagamento no gateway
     if (result.outcome === 'confirmed' && result.bookingId) {

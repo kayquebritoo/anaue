@@ -16,6 +16,8 @@ import { isOnlineBookingEnabled, ONLINE_BOOKING_DISABLED_MESSAGE } from '@/lib/l
 import { confirmBookingFromPayment, type ConfirmationOutcome } from '@/lib/paymentConfirmation';
 import { supabaseConfirmationRepository, mockConfirmationRepository } from '@/lib/paymentConfirmationRepo';
 import { sendPaymentConfirmedEmail } from '@/lib/bookingNotifications';
+import { recordPaymentEvent } from '@/lib/payments/events';
+import { getPaymentIntegrationStatus } from '@/lib/payments/diagnostics';
 
 export interface CreatePixPaymentResult {
   success: boolean;
@@ -87,6 +89,14 @@ export async function createPixPaymentAction(
       bookingCode: booking.booking_code,
       amount: Number(booking.total_price),
       payerEmail: booking.guest_email || email,
+    });
+    await recordPaymentEvent({
+      type: 'pix_created',
+      environment: getPaymentIntegrationStatus().environment,
+      paymentId: charge.providerPaymentId,
+      bookingId: booking.id,
+      paymentStatus: 'pending',
+      amount: Number(booking.total_price),
     });
     return {
       success: true,
@@ -247,6 +257,15 @@ export async function confirmBookingPayment(
       not_pending: 'A reserva não está mais pendente.',
     };
     const ok = r.outcome === 'confirmed' || r.outcome === 'already_confirmed';
+    await recordPaymentEvent({
+      type: 'manual_confirmation',
+      environment: getPaymentIntegrationStatus().environment,
+      paymentId: payment.id,
+      bookingId: safeId,
+      paymentStatus: payment.status,
+      outcome: r.outcome,
+      amount: Number(payment.transaction_amount),
+    });
     if (r.outcome === 'confirmed') await sendPaymentConfirmedEmail(safeId);
     return { success: ok, outcome: r.outcome, error: ok ? undefined : messages[r.outcome] };
   } catch (err) {
