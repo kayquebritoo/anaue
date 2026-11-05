@@ -508,3 +508,64 @@ describe('Fluxo Mercado Pago ponta a ponta (API simulada, sem rede)', () => {
     }
   }));
 });
+
+// ─────────────────────────────────────────────────────────────
+describe('Camada de gateway de pagamento (preparada para 2º gateway)', () => {
+  const realFetch = globalThis.fetch;
+  const bodies: Record<string, unknown>[] = [];
+  const reqHeaders: Record<string, string>[] = [];
+  before(() => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (!url.startsWith('https://api.mercadopago.com/')) throw new Error(`rede bloqueada: ${url}`);
+      if (init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)));
+        reqHeaders.push(init.headers as Record<string, string>);
+        return new Response(JSON.stringify({ id: 777, status: 'pending', point_of_interaction: { transaction_data: { qr_code: 'pix-copia-cola', qr_code_base64: 'QR', redirect_url: 'https://mp/t' } } }));
+      }
+      return new Response(JSON.stringify({ id: 777, status: 'approved', transaction_amount: '1852.00', currency_id: 'BRL', external_reference: 'res-abc12345' }));
+    }) as typeof fetch;
+  });
+  after(() => {
+    globalThis.fetch = realFetch;
+    delete env.MP_ACCESS_TOKEN;
+    delete env.MP_NOTIFICATION_URL;
+    delete env.PAYMENT_PROVIDER;
+  });
+
+  test('padrão é Mercado Pago; PagBank reservado falha de forma explícita', async () => {
+    const { getActivePaymentGateway, getPaymentGateway, PaymentGatewayUnavailableError } = await import('../lib/payments');
+    assert.equal(getActivePaymentGateway().id, 'mercadopago');
+    env.PAYMENT_PROVIDER = 'pagbank';
+    assert.throws(() => getActivePaymentGateway(), PaymentGatewayUnavailableError);
+    env.PAYMENT_PROVIDER = 'gateway-inventado';
+    assert.throws(() => getActivePaymentGateway(), PaymentGatewayUnavailableError);
+    delete env.PAYMENT_PROVIDER;
+    assert.throws(() => getPaymentGateway('pagbank'), PaymentGatewayUnavailableError);
+  });
+
+  test('adaptador MP: cobra o valor recebido, envia idempotência e normaliza o pagamento', async () => {
+    env.MP_ACCESS_TOKEN = 'TEST-token-ficticio';
+    const { mercadoPagoGateway } = await import('../lib/payments/mercadopago');
+    const charge = await mercadoPagoGateway.createPixCharge({ bookingId: 'res-abc12345', bookingCode: 'AN-K3F9123', amount: 1852, payerEmail: 'a@b.com' });
+    assert.equal(charge.providerPaymentId, '777');
+    assert.equal(charge.copiaECola, 'pix-copia-cola');
+    const body = bodies.at(-1)!;
+    assert.equal(body.transaction_amount, 1852);
+    assert.equal(body.external_reference, 'res-abc12345');
+    assert.equal(body.notification_url, undefined, 'sem MP_NOTIFICATION_URL usa o webhook do painel');
+    assert.match(String(reqHeaders.at(-1)!['X-Idempotency-Key']), /^[0-9a-f-]{36}$/);
+
+    const snap = await mercadoPagoGateway.getPayment('777');
+    assert.deepEqual(snap, { id: 777, status: 'approved', transaction_amount: 1852, external_reference: 'res-abc12345', currency_id: 'BRL' });
+    await assert.rejects(mercadoPagoGateway.getPayment('abc'));
+  });
+
+  test('MP_NOTIFICATION_URL direciona o webhook de um pagamento de teste (preview/staging)', async () => {
+    env.MP_ACCESS_TOKEN = 'TEST-token-ficticio';
+    env.MP_NOTIFICATION_URL = 'https://preview.example.com/api/webhooks/mercadopago';
+    const { mercadoPagoGateway } = await import('../lib/payments/mercadopago');
+    await mercadoPagoGateway.createPixCharge({ bookingId: 'res-abc12345', bookingCode: 'AN-K3F9123', amount: 10, payerEmail: 'a@b.com' });
+    assert.equal(bodies.at(-1)!.notification_url, 'https://preview.example.com/api/webhooks/mercadopago');
+  });
+});

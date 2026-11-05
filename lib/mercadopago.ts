@@ -74,6 +74,9 @@ export async function createPixPayment(
       email: params.email,
     },
     external_reference: params.externalReference,
+    // Opcional: URL de webhook por pagamento (ex.: preview/staging em teste de PIX real),
+    // sem alterar a configuração de webhook de produção no painel do MP.
+    ...(process.env.MP_NOTIFICATION_URL ? { notification_url: process.env.MP_NOTIFICATION_URL } : {}),
     // Expiração: 30 minutos a partir de agora
     date_of_expiration: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
   };

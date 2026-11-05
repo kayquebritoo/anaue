@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPaymentStatus } from '@/lib/mercadopago';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { isMockDataAllowed } from '@/lib/dataMode';
-import { verifyMercadoPagoSignature } from '@/lib/mercadopagoSignature';
+import { mercadoPagoGateway } from '@/lib/payments/mercadopago';
 import { confirmBookingFromPayment } from '@/lib/paymentConfirmation';
 import { supabaseConfirmationRepository, mockConfirmationRepository } from '@/lib/paymentConfirmationRepo';
 
@@ -27,12 +26,7 @@ export async function POST(request: NextRequest) {
     // ── Verificação de Assinatura HMAC-SHA256 do Mercado Pago ──────────────
     // Com MP_WEBHOOK_SECRET configurado, a assinatura é obrigatória (antes,
     // omitir o header x-signature pulava a verificação).
-    const signature = verifyMercadoPagoSignature({
-      secret: process.env.MP_WEBHOOK_SECRET,
-      xSignature: request.headers.get('x-signature'),
-      xRequestId: request.headers.get('x-request-id'),
-      dataId: url.searchParams.get('data.id') || url.searchParams.get('id'),
-    });
+    const signature = mercadoPagoGateway.verifyWebhook({ headers: request.headers, url });
     if (signature === 'invalid') {
       console.warn('[Webhook MP] Assinatura ausente ou inválida.');
       return NextResponse.json({ error: 'Assinatura inválida.' }, { status: 401 });
@@ -76,7 +70,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Consultar status real do pagamento no Mercado Pago
-    const payment = await getPaymentStatus(paymentId);
+    const payment = await mercadoPagoGateway.getPayment(String(paymentId));
 
     if (!payment || !payment.external_reference) {
       return NextResponse.json(

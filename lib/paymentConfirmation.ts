@@ -17,6 +17,8 @@ import { amountsMatch } from '@/lib/pricing';
 
 export interface PaymentSnapshot {
   id: number | string;
+  /** Gateway de origem (opcional; padrão mercadopago). */
+  provider?: 'mercadopago' | 'pagbank';
   status: string;
   transaction_amount: number;
   external_reference: string | null;

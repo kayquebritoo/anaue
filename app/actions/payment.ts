@@ -5,7 +5,8 @@
 // Server Actions — Integração Mercado Pago (PIX)
 // ============================================================
 
-import { createPixPayment, getPaymentStatus, type PixPaymentResponse } from '@/lib/mercadopago';
+import { getPaymentStatus } from '@/lib/mercadopago';
+import { getActivePaymentGateway } from '@/lib/payments';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import * as mockData from '@/lib/mockData';
 import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
@@ -85,42 +86,24 @@ export async function createPixPaymentAction(
   }
 
   try {
-    const payment = await createPixPayment({
+    const charge = await getActivePaymentGateway().createPixCharge({
+      bookingId: booking.id,
+      bookingCode: booking.booking_code,
       amount: Number(booking.total_price),
-      description: `Reserva Anauê — ${booking.booking_code}`,
-      email: booking.guest_email || email,
-      externalReference: booking.id,
+      payerEmail: booking.guest_email || email,
     });
-
-    // Extrair QR code da resposta
-    const qrCodeBase64 =
-      payment.point_of_interaction?.transaction_data?.qr_code_base64 ||
-      payment.qr_code_base64 ||
-      '';
-
-    const copiaECola =
-      payment.point_of_interaction?.transaction_data?.qr_code ||
-      payment.qr_code ||
-      '';
-
-    const ticketUrl =
-      payment.point_of_interaction?.transaction_data?.redirect_url ||
-      payment.ticket_url ||
-      '';
-
     return {
       success: true,
-      paymentId: payment.id,
-      qrCodeBase64,
-      copiaECola,
-      ticketUrl,
-      expiresAt: payment.date_of_expiration,
+      paymentId: Number(charge.providerPaymentId),
+      qrCodeBase64: charge.qrCodeBase64,
+      copiaECola: charge.copiaECola,
+      ticketUrl: charge.ticketUrl,
+      expiresAt: charge.expiresAt,
     };
   } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Erro ao criar pagamento PIX.',
-    };
+    // Detalhes do gateway ficam no log; o hóspede recebe mensagem segura
+    console.error('[createPixPaymentAction] Falha no gateway:', error);
+    return { success: false, error: 'Não foi possível gerar o PIX agora. Sua reserva foi registrada; tente novamente ou fale conosco.' };
   }
 }
 
@@ -178,7 +161,7 @@ export async function confirmBookingPayment(
     if (!Number.isInteger(paymentId) || (paymentId as number) <= 0) {
       return { success: false, error: 'Informe o ID do pagamento do Mercado Pago.' };
     }
-    const payment = await getPaymentStatus(paymentId as number);
+    const payment = await getActivePaymentGateway().getPayment(String(paymentId));
     if (normalizeBookingId(payment.external_reference) !== safeId) {
       return { success: false, outcome: 'invalid_reference', error: 'Este pagamento não pertence a esta reserva.' };
     }

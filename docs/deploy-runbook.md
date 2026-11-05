@@ -10,9 +10,20 @@ Pago). 🤖 = pode ser executado/assistido pelo agente sem tocar produção.
 
 ---
 
+## Documentos de apoio
+- `docs/staging-setup.md` — estado atual (não há staging), criação do staging com cliques exatos, Preview → staging.
+- `docs/pix-real-test.md` — PIX: sandbox e teste real simbólico com estorno.
+- `docs/payment-gateways.md` — camada de gateways (PagBank preparado, não integrado).
+- `scripts/staging/00-diagnostico-somente-leitura.sql` — rodar em produção antes das migrations (só contagens).
+- `scripts/staging/10-verificacao-pos-migration.sql` — conferir migrations aplicadas.
+- `npm run test:staging` — testes de aceitação contra o staging (recusa produção).
+
 ## 0. Pré-condições
 - [ ] PR #1 revisado e aprovado (👤).
-- [ ] `npm test` verde (90 testes) no commit a implantar (🤖).
+- [ ] `npm test` verde (93 testes) no commit a implantar (🤖).
+- [ ] Preview do PR com build verde na Vercel (hoje falha por falta de variáveis no Preview — `docs/staging-setup.md`, passos 0 e 5).
+- [ ] `npm run test:staging` verde contra o staging (🤖 após o staging existir).
+- [ ] Fases B e C de `docs/pix-real-test.md` concluídas.
 - [ ] Janela de baixa ocupação combinada com a Dilma (👤). Duração estimada: 60–90 min.
 - [ ] Responsáveis definidos: quem executa, quem valida, quem decide rollback.
 
@@ -44,7 +55,7 @@ Pago). 🤖 = pode ser executado/assistido pelo agente sem tocar produção.
 
 **Saída:** backup verificado *restaurável*, não apenas "existente".
 
-## 3. Validação em staging (recomendado antes da produção)
+## 3. Validação em staging (obrigatória antes da produção)
 🤖/👤 Projeto Supabase de staging restaurado do backup do passo 2:
 - [ ] Rodar diagnósticos (a)–(d) de `20261105000000_booking_integrity.sql` → resolver conflitos reais com a Dilma.
 - [ ] Aplicar `…_booking_integrity.sql` e depois `…_rls_hardening.sql`.
