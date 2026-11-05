@@ -22,9 +22,11 @@ Escolhido: **projeto Supabase separado no plano Free (US$ 0)** + Preview da Verc
 |---|---|
 | Projeto `pms-staging` | ✅ criado (ref `ardsssyghkyknlhgwqnw`, us-west-1, plano Free, custo US$ 0) |
 | Schema base + catálogo | ✅ aplicados (mesmo estado da produção: RLS público, sem migrations) |
-| Teste de compatibilidade com o estado da produção | ✅ `npm run test:compat` 8/8 |
+| Teste de compatibilidade com o estado da produção | ✅ `npm run test:compat` 8/8 (antes das migrations) |
 | Variáveis do Preview na Vercel | ✅ `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (staging), `NEXT_PUBLIC_ONLINE_BOOKING_ENABLED=true` — **somente Preview** |
-| Migration de integridade, RLS e seed fictício | ⏳ aguardando sua aprovação no conector do Supabase (pede confirmação por conter `DROP … IF EXISTS`) |
+| Migration de integridade | ✅ aplicada no staging (constraint, triggers SECURITY DEFINER, btree_gist em `extensions`) |
+| Migration de RLS | ✅ aplicada no staging — anônimo recebe `[]` em reservas/cupons/bloqueios/governança e não insere (42501) |
+| Seed fictício | ✅ 5 reservas (todos os status), 1 bloqueio, `room-teste-pix` (R$ 2,00); 0 reservas não fictícias |
 | Chave secreta do staging | ⏳ você (painel) — necessária antes da migration de RLS no Preview |
 | Usuários de teste | ⏳ você (passo 3) |
 
