@@ -14,7 +14,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 import { useCheckout } from '@/hooks/useCheckout';
-import { getRoomById, getAddons, getExperienceById, getExperiences } from '@/lib/mockData';
+import { getAddons } from '@/lib/mockData';
+import { getRoomByIdAsync, getExperienceByIdAsync, getExperiencesAsync } from '@/lib/supabaseData';
 import { createPixPaymentAction } from '@/app/actions/payment';
 import { BookingSummaryCard } from '@/components/checkout/BookingSummaryCard';
 import { AddonsSelector } from '@/components/checkout/AddonsSelector';
@@ -46,19 +47,33 @@ function CheckoutPageContent() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Resolver dados no cliente (mockData é síncrono)
+  // Preços exibidos vêm da MESMA fonte usada pelo servidor para calcular o
+  // valor (Supabase; adicionais do catálogo estático). Assim, uma tarifa
+  // alterada no banco aparece no checkout em vez de gerar divergência.
   useEffect(() => {
-    if (roomId) {
-      const found = getRoomById(roomId);
-      setRoom(found ?? null);
-    }
-    if (experienceId) {
-      const foundExp = getExperienceById(experienceId);
-      setExperience(foundExp ?? null);
-    }
-    setAddons(getAddons());
-    setExperiences(getExperiences());
-    setLoading(false);
+    let cancelled = false;
+    (async () => {
+      try {
+        const [foundRoom, foundExp, allExperiences] = await Promise.all([
+          roomId ? getRoomByIdAsync(roomId) : Promise.resolve(undefined),
+          experienceId ? getExperienceByIdAsync(experienceId) : Promise.resolve(undefined),
+          getExperiencesAsync(),
+        ]);
+        if (cancelled) return;
+        setRoom(foundRoom ?? null);
+        setExperience(foundExp ?? null);
+        setExperiences(allExperiences);
+        setAddons(getAddons());
+      } catch (err) {
+        console.error('[Checkout] Falha ao carregar tarifas:', err);
+        if (!cancelled) setSubmitError('Não foi possível carregar as tarifas agora. Recarregue a página.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [roomId, experienceId]);
 
   const checkout = useCheckout({

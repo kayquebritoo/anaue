@@ -15,10 +15,11 @@ import { supabase } from '@/lib/supabase';
 import * as mockData from '@/lib/mockData';
 import { mapDbBookingToReservation } from '@/lib/supabaseData';
 import { BOOKING_MESSAGES, BookingDbError, bookingErrorMessage, classifyDbError } from '@/lib/bookingErrors';
+import { quoteBooking, matchesQuote, PRICING_MESSAGES, type PricingCatalog } from '@/lib/pricing';
 
 export { BookingDbError };
 import type { Reservation, ReservationStatus, PaymentMethodType, InvoiceStatus } from '@/types';
-import type { Database, DbBooking } from '@/types/database';
+import type { Database, DbBooking, Json } from '@/types/database';
 
 export type BookingInsertRow = Database['public']['Tables']['bookings']['Insert'];
 
@@ -28,10 +29,19 @@ export interface CreateBookingInput {
   checkIn: string;
   checkOut: string;
   guests: number;
-  totalPrice: number;
-  roomPrice: number;
-  addonsPrice: number;
-  discountPrice: number;
+  /**
+   * Total EXIBIDO ao hóspede. Não define o preço: o servidor recalcula e
+   * recusa a reserva se divergir (lib/pricing.ts).
+   */
+  totalPrice?: number;
+  /** Ignorados — mantidos por compatibilidade; o servidor recalcula. */
+  roomPrice?: number;
+  addonsPrice?: number;
+  discountPrice?: number;
+  /** Cupom aplicado no checkout; revalidado no servidor. */
+  couponCode?: string | null;
+  /** 'manual' = reserva pela equipe (sem desconto PIX, adicionais ou cupom). */
+  channel?: 'web' | 'manual';
   specialRequests?: string | null;
   guestName: string;
   guestEmail?: string;
@@ -68,6 +78,8 @@ export interface BookingRepository {
 export interface BookingServiceDeps {
   /** null = nenhum repositório disponível (Supabase não configurado e mock proibido). */
   repo: BookingRepository | null;
+  /** Fonte de preços confiável do servidor. */
+  catalog: PricingCatalog;
   sendConfirmation: (reservation: Reservation) => Promise<unknown>;
   revalidate?: (paths: string[]) => Promise<void>;
   logger?: Pick<Console, 'error' | 'warn'>;
@@ -126,6 +138,39 @@ export async function createBooking(
   const repo = deps.repo;
   const roomId = isRoomBooking ? (payload.roomId as string) : null;
 
+  // ── 1b. Preço calculado no servidor (nunca o valor do navegador) ──
+  let quoteResult;
+  try {
+    quoteResult = await quoteBooking(
+      {
+        channel: payload.channel ?? 'web',
+        roomId: payload.roomId,
+        experienceId: payload.experienceId,
+        isExperienceMode: payload.isExperienceMode,
+        checkIn: payload.checkIn,
+        checkOut: payload.checkOut,
+        guests: payload.guests,
+        paymentMethod: payload.paymentMethod,
+        items: (payload.selectedAddons ?? []).map((a) => ({ id: a?.id, label: a?.name })),
+        couponCode: payload.couponCode,
+      },
+      deps.catalog
+    );
+  } catch (err) {
+    log.error('[createBooking] Falha ao calcular preço:', err);
+    return { success: false, error: BOOKING_MESSAGES.availabilityUnavailable };
+  }
+  if (!quoteResult.ok) {
+    return { success: false, error: quoteResult.error };
+  }
+  const quote = quoteResult.quote;
+  if (!matchesQuote(payload.totalPrice, quote)) {
+    log.warn(
+      `[createBooking] Total enviado pelo cliente (${payload.totalPrice}) difere do calculado (${quote.total}). Reserva recusada.`
+    );
+    return { success: false, error: PRICING_MESSAGES.priceMismatch };
+  }
+
   // ── 2. Pré-checagem de disponibilidade (fail-closed) ──
   if (roomId) {
     let bookingOverlaps: { id: string }[];
@@ -157,15 +202,17 @@ export async function createBooking(
     guest_phone: payload.guestPhone?.trim() || '',
     check_in_date: payload.checkIn,
     check_out_date: payload.checkOut,
-    guests: payload.guests || 2,
-    room_price: payload.roomPrice || 0,
-    addons_price: payload.addonsPrice || 0,
-    discount_price: payload.discountPrice || 0,
-    total_price: payload.totalPrice,
+    guests: payload.guests,
+    // Valores calculados no servidor (lib/pricing.ts)
+    room_price: quote.roomSubtotal + quote.experienceSubtotal,
+    addons_price: quote.itemsSubtotal,
+    discount_price: quote.pixDiscount + quote.couponDiscount,
+    total_price: quote.total,
+    coupon_code: quote.couponCode,
     status: payload.status || 'pending',
     special_requests: payload.specialRequests?.trim() || null,
     payment_method: payload.paymentMethod,
-    selected_addons: payload.selectedAddons || [],
+    selected_addons: quote.lineItems as unknown as Json,
     guest_document: payload.guestDocument?.trim() || null,
     tax_id: payload.taxId?.trim() || null,
     company_name: payload.companyName?.trim() || null,

@@ -63,10 +63,8 @@ async function runTests() {
     checkIn: '2026-12-12',
     checkOut: '2026-12-14',
     guests: 2,
-    totalPrice: 1500,
-    roomPrice: 1500,
-    addonsPrice: 0,
-    discountPrice: 0,
+    // Cupuaçu: R$ 890 × 2 noites = 1.780 − 5% PIX (89) = 1.691 (preço calculado no servidor)
+    totalPrice: 1691,
     guestName: 'Cliente Teste Bloqueio',
     guestEmail: 'cliente.teste@example.com',
     paymentMethod: 'pix',
@@ -74,6 +72,9 @@ async function runTests() {
 
   if (bookingAttempt.success) {
     throw new Error('❌ Falha na trava! Reserva foi criada em quarto bloqueado.');
+  }
+  if (!bookingAttempt.error?.includes('bloqueado')) {
+    throw new Error(`❌ Reserva recusada pelo motivo errado: "${bookingAttempt.error}"`);
   }
   console.log(`✅ Trava funcionou perfeitamente! Reserva rejeitada com: "${bookingAttempt.error}"`);
 

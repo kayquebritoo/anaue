@@ -49,6 +49,7 @@ export interface PaymentStatusResponse {
   status_detail: string;
   external_reference: string;
   transaction_amount: number;
+  currency_id?: string;
   payment_method_id: string;
   date_approved: string | null;
 }
@@ -79,7 +80,8 @@ export async function createPixPayment(
 
   const response = await fetch(`${MP_BASE_URL}/payments`, {
     method: 'POST',
-    headers: headers(),
+    // Chave de idempotência exigida pela API de pagamentos do Mercado Pago
+    headers: { ...headers(), 'X-Idempotency-Key': crypto.randomUUID() },
     body: JSON.stringify(body),
   });
 

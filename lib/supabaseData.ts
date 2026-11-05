@@ -201,6 +201,20 @@ export async function getExperienceBySlugAsync(slug: string): Promise<Experience
   return data ? mapDbExperienceToExperience(data) : undefined;
 }
 
+export async function getExperienceByIdAsync(id: string): Promise<Experience | undefined> {
+  if (!id) return undefined;
+  if (shouldUseMockData()) return mockData.getExperienceById(id);
+
+  const { data, error } = await supabase
+    .from('experiences')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) readFailure('getExperienceByIdAsync', error);
+  return data ? mapDbExperienceToExperience(data) : undefined;
+}
+
 // ─── RESERVAS (BOOKINGS) ──────────────────────────────────────
 
 export async function getBookingsAsync(): Promise<Reservation[]> {

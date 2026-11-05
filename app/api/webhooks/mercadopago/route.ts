@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPaymentStatus, isPaymentApproved } from '@/lib/mercadopago';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import * as mockData from '@/lib/mockData';
+import { getPaymentStatus } from '@/lib/mercadopago';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { isMockDataAllowed } from '@/lib/dataMode';
 import { verifyMercadoPagoSignature } from '@/lib/mercadopagoSignature';
-import { normalizeBookingId } from '@/lib/queryInput';
+import { confirmBookingFromPayment } from '@/lib/paymentConfirmation';
+import { supabaseConfirmationRepository, mockConfirmationRepository } from '@/lib/paymentConfirmationRepo';
 
 /**
  * POST /api/webhooks/mercadopago
@@ -85,37 +85,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const bookingId = normalizeBookingId(payment.external_reference);
-    if (!bookingId) {
-      return NextResponse.json({ error: 'external_reference inválida.' }, { status: 400 });
+    // Confirma somente se aprovado E valor pago == total calculado no servidor
+    const repo = isSupabaseConfigured()
+      ? supabaseConfirmationRepository
+      : isMockDataAllowed()
+        ? mockConfirmationRepository
+        : null;
+    if (!repo) {
+      return NextResponse.json({ error: 'Banco indisponível.' }, { status: 503 });
     }
+    const result = await confirmBookingFromPayment(payment, repo);
+    const bookingId = result.bookingId ?? null;
 
-    // Se pagamento aprovado, confirmar reserva
-    if (isPaymentApproved(payment.status)) {
-      if (isSupabaseConfigured()) {
-        // Atualizar status do booking para 'confirmed'
-        const { error } = await supabase
-          .from('bookings')
-          .update({ status: 'confirmed' })
-          .eq('id', bookingId)
-          .eq('status', 'pending');
-
-        if (error) {
-          return NextResponse.json(
-            { error: `Erro ao atualizar reserva: ${error.message}` },
-            { status: 500 }
-          );
-        }
-      } else if (isMockDataAllowed()) {
-        // Mock: atualizar localmente (somente dev/demo)
-        mockData.updateReservationStatus(bookingId, 'confirmed');
-      }
-    }
-
+    // Divergências respondem 200 (não adianta o MP reenviar) e ficam no log
+    // para a equipe; erros de banco lançam e respondem 500 (MP reenvia).
     return NextResponse.json({
       received: true,
       paymentId,
       status: payment.status,
+      outcome: result.outcome,
       bookingId,
     });
   } catch (error) {

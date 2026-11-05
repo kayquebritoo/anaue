@@ -10,7 +10,9 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import * as mockData from '@/lib/mockData';
 import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
 import { normalizeBookingId } from '@/lib/queryInput';
-import { isIntegrationMockAllowed } from '@/lib/dataMode';
+import { isIntegrationMockAllowed, isMockDataAllowed } from '@/lib/dataMode';
+import { confirmBookingFromPayment, type ConfirmationOutcome } from '@/lib/paymentConfirmation';
+import { supabaseConfirmationRepository, mockConfirmationRepository } from '@/lib/paymentConfirmationRepo';
 
 export interface CreatePixPaymentResult {
   success: boolean;
@@ -40,7 +42,11 @@ export async function createPixPaymentAction(
       console.error('[createPixPaymentAction] MP_ACCESS_TOKEN ausente em produção.');
       return { success: false, error: 'Pagamento PIX indisponível no momento. Sua reserva foi registrada; entre em contato para concluir o pagamento.' };
     }
-    // Modo mock (desenvolvimento): simular pagamento PIX sem Mercado Pago real
+    // Modo mock (desenvolvimento): simular pagamento PIX sem Mercado Pago real.
+    // Mesmo no mock, o valor vem da reserva gravada, não do navegador.
+    const mockBooking = mockData.getReservationById(normalizeBookingId(bookingId) || '');
+    if (!mockBooking) return { success: false, error: 'Reserva não encontrada para pagamento.' };
+    amount = mockBooking.totalPrice;
     const mockQrCode = `00020126580014br.gov.bcb.pix0136${bookingId}@anaue.com.br5204000053039865${amount.toFixed(2)}5802BR5925ANAU AMAZONIA ECOLODGE6009SAO PAULO62070503***6304`;
     const mockBase64 = generateMockQrCodeBase64();
 
@@ -70,6 +76,9 @@ export async function createPixPaymentAction(
   }
   if (booking.status !== 'pending') {
     return { success: false, error: 'Esta reserva não está aguardando pagamento.' };
+  }
+  if (!(Number(booking.total_price) > 0)) {
+    return { success: false, error: 'Esta reserva não possui valor a pagar.' };
   }
   if (Number(booking.total_price) !== Number(amount)) {
     console.warn('[createPixPaymentAction] Valor enviado pelo cliente difere do registrado; usando o valor da reserva.');
@@ -137,32 +146,62 @@ export async function checkPaymentStatusAction(
 }
 
 /**
- * Confirma uma reserva (atualiza status para confirmed) após pagamento aprovado.
+ * Confirmação manual pela equipe a partir de um pagamento do Mercado Pago.
+ * Busca o pagamento na API do MP e só confirma se aprovado, da mesma
+ * reserva e com valor pago igual ao total calculado no servidor.
+ * (Pagamento recebido por outro meio: use a mudança de status no painel.)
  */
 export async function confirmBookingPayment(
-  bookingId: string
-): Promise<{ success: boolean; error?: string }> {
+  bookingId: string,
+  paymentId?: number
+): Promise<{ success: boolean; outcome?: ConfirmationOutcome; error?: string }> {
   // Sem esta checagem, qualquer pessoa confirmaria uma reserva sem pagar.
   if (!(await isStaff())) return { success: false, error: UNAUTHORIZED_MESSAGE };
   const safeId = normalizeBookingId(bookingId);
   if (!safeId) return { success: false, error: 'ID da reserva inválido.' };
 
-  if (isSupabaseConfigured()) {
-    const { error } = await supabase
-      .from('bookings')
-      .update({ status: 'confirmed' })
-      .eq('id', safeId)
-      .eq('status', 'pending'); // Só atualiza se ainda estiver pendente
-
-    if (error) {
-      return { success: false, error: error.message };
+  try {
+    if (!process.env.MP_ACCESS_TOKEN) {
+      if (!isIntegrationMockAllowed()) {
+        return { success: false, error: 'Mercado Pago não configurado: não é possível verificar o pagamento.' };
+      }
+      // Desenvolvimento: simula um pagamento aprovado com o valor da reserva
+      const booking = await mockConfirmationRepository.getBooking(safeId);
+      if (!booking) return { success: false, outcome: 'booking_not_found', error: 'Reserva não encontrada.' };
+      const r = await confirmBookingFromPayment(
+        { id: 'mock', status: 'approved', transaction_amount: booking.totalPrice, external_reference: safeId, currency_id: 'BRL' },
+        isSupabaseConfigured() ? supabaseConfirmationRepository : mockConfirmationRepository
+      );
+      return { success: r.outcome === 'confirmed' || r.outcome === 'already_confirmed', outcome: r.outcome };
     }
-  } else {
-    // Mock: atualizar status localmente
-    mockData.updateReservationStatus(safeId, 'confirmed');
-  }
 
-  return { success: true };
+    if (!Number.isInteger(paymentId) || (paymentId as number) <= 0) {
+      return { success: false, error: 'Informe o ID do pagamento do Mercado Pago.' };
+    }
+    const payment = await getPaymentStatus(paymentId as number);
+    if (normalizeBookingId(payment.external_reference) !== safeId) {
+      return { success: false, outcome: 'invalid_reference', error: 'Este pagamento não pertence a esta reserva.' };
+    }
+    const repo = isSupabaseConfigured()
+      ? supabaseConfirmationRepository
+      : isMockDataAllowed()
+        ? mockConfirmationRepository
+        : null;
+    if (!repo) return { success: false, error: 'Banco de dados indisponível.' };
+    const r = await confirmBookingFromPayment(payment, repo);
+    const messages: Partial<Record<ConfirmationOutcome, string>> = {
+      not_approved: 'Pagamento ainda não aprovado.',
+      amount_mismatch: `Valor pago (R$ ${r.paid}) diferente do total da reserva (R$ ${r.due}). Reserva não confirmada.`,
+      currency_mismatch: 'Moeda do pagamento inválida.',
+      booking_not_found: 'Reserva não encontrada.',
+      not_pending: 'A reserva não está mais pendente.',
+    };
+    const ok = r.outcome === 'confirmed' || r.outcome === 'already_confirmed';
+    return { success: ok, outcome: r.outcome, error: ok ? undefined : messages[r.outcome] };
+  } catch (err) {
+    console.error('[confirmBookingPayment] Erro:', err);
+    return { success: false, error: 'Não foi possível verificar o pagamento agora.' };
+  }
 }
 
 // ─── Gerador de QR Code mock (SVG base64) ───────────────────

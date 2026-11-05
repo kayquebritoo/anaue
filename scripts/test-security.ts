@@ -217,8 +217,8 @@ describe('3. Autorização das Server Actions administrativas', () => {
     await updateBookingStatusAction('res-003', original);
     assert.equal((await getAllRoomBlocksAction()).success, true);
     const manual = await createBookingAction({
-      roomId: 'room-003', checkIn: '2032-01-10', checkOut: '2032-01-12', guests: 2, totalPrice: 500,
-      roomPrice: 500, addonsPrice: 0, discountPrice: 0, guestName: 'Reserva Manual', paymentMethod: 'pix', status: 'confirmed',
+      roomId: 'room-003', checkIn: '2032-01-10', checkOut: '2032-01-12', guests: 2, totalPrice: 2360,
+      guestName: 'Reserva Manual', paymentMethod: 'pix', status: 'confirmed', channel: 'manual',
     });
     assert.equal(manual.success, true, manual.error);
     assert.equal(manual.reservation?.status, 'confirmed');
@@ -227,8 +227,8 @@ describe('3. Autorização das Server Actions administrativas', () => {
   test('checkout público continua funcionando (status pending)', silence(async () => {
     const { createBookingAction } = await import('../app/actions/booking');
     const r = await createBookingAction({
-      roomId: 'room-002', checkIn: '2032-02-10', checkOut: '2032-02-12', guests: 2, totalPrice: 500,
-      roomPrice: 500, addonsPrice: 0, discountPrice: 0, guestName: 'Hóspede', guestEmail: 'h@example.com', paymentMethod: 'pix',
+      roomId: 'room-002', checkIn: '2032-02-10', checkOut: '2032-02-12', guests: 2, totalPrice: 1691,
+      guestName: 'Hóspede', guestEmail: 'h@example.com', paymentMethod: 'pix',
     });
     assert.equal(r.success, true, r.error);
     assert.equal(r.reservation?.status, 'pending');
@@ -413,8 +413,9 @@ describe('5. Busca pelos novos códigos de reserva', () => {
     const { normalizeBookingCode } = await import('../lib/queryInput');
     const codes: string[] = [];
     await svc.createBooking(
-      { roomId: null, checkIn: '2033-01-01', checkOut: '2033-01-02', guests: 1, totalPrice: 1, roomPrice: 1, addonsPrice: 0, discountPrice: 0, guestName: 'X', paymentMethod: 'pix' },
+      { roomId: 'room-001', checkIn: '2033-01-01', checkOut: '2033-01-02', guests: 1, guestName: 'X', paymentMethod: 'pix' },
       {
+        catalog: (await import('../lib/pricingCatalog')).serverPricingCatalog,
         repo: {
           findActiveBookingOverlaps: async () => [],
           findRoomBlockOverlaps: async () => [],
@@ -434,8 +435,8 @@ describe('5. Busca pelos novos códigos de reserva', () => {
   test('reserva criada pelo checkout é encontrada pelo novo código (maiúsculas ou minúsculas)', silence(async () => {
     const { createBookingAction, lookupBookingAction } = await import('../app/actions/booking');
     const created = await createBookingAction({
-      roomId: 'room-001', checkIn: '2033-06-01', checkOut: '2033-06-03', guests: 2, totalPrice: 1300,
-      roomPrice: 1300, addonsPrice: 0, discountPrice: 0, guestName: 'Novo Código', guestEmail: 'novo@example.com', paymentMethod: 'pix',
+      roomId: 'room-001', checkIn: '2033-06-01', checkOut: '2033-06-03', guests: 2,
+      guestName: 'Novo Código', guestEmail: 'novo@example.com', paymentMethod: 'pix',
     });
     assert.equal(created.success, true, created.error);
     const code = created.bookingCode!;

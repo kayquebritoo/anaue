@@ -147,11 +147,40 @@ reserva nova era encontrável pelo código** (só por e-mail). Agora
 e o mock passou a usar o código gerado (antes ignorava). Teste ponta a ponta:
 reserva criada no checkout é encontrada pelo código.
 
-## 6. Riscos restantes (não resolvidos neste PR)
+## 6. Manipulação de preço (3ª rodada)
+
+**Antes:** o preço era calculado só no navegador (`hooks/useCheckout.ts`) e
+gravado como veio: `totalPrice: 1` criava uma reserva de R$ 1; o PIX cobrava
+esse valor e o webhook confirmava a reserva sem conferir quanto foi pago.
+O código do cupom nem chegava ao servidor — só o total já descontado.
+
+**Agora:**
+- `lib/pricing.ts` recalcula no servidor com as mesmas regras do checkout:
+  diárias do banco × noites, experiência/adicionais pelo catálogo
+  (`per_person` × hóspedes), PIX 5% (canal web), cupom revalidado (ativo,
+  validade, gasto mínimo), total ≥ 0. Hóspedes limitados à capacidade do quarto.
+- O total do navegador é só o "valor exibido": se divergir **em 1 centavo**,
+  a reserva é recusada (o hóspede nunca é cobrado por valor diferente do que viu).
+  Subtotais, preços de itens e descontos enviados pelo cliente são ignorados.
+- Gravados: `room_price`, `addons_price`, `discount_price`, `total_price`,
+  `coupon_code` e itens com preço do servidor.
+- Canal `manual` (reserva da equipe, sem desconto PIX) exige sessão de equipe.
+- PIX: valor e descrição da reserva gravada; recusa total ≤ 0; envia
+  `X-Idempotency-Key`.
+- `lib/paymentConfirmation.ts`: webhook e confirmação manual só confirmam se
+  o pagamento está aprovado, em BRL, da mesma reserva, com **valor pago igual
+  ao total gravado (em centavos)** e a reserva ainda `pending` (UPDATE
+  condicional, idempotente). Valor divergente → reserva continua pendente,
+  log `[Pagamento] VALOR DIVERGENTE` para tratamento manual.
+- Checkout passou a exibir tarifas do banco (mesma fonte do servidor).
+
+## 7. Riscos restantes (não resolvidos neste PR)
 
 | Risco | Recomendação |
 |---|---|
-| **Preço definido pelo cliente**: `totalPrice` da reserva vem do browser. Uma reserva de R$ 1 paga via PIX é confirmada pelo webhook | Recalcular o preço no servidor (diárias × noites + adicionais − cupom/PIX) antes do INSERT. Mudança de regra de negócio, fica para PR dedicado |
+| Pagamento com valor divergente fica só no log | Criar alerta (e-mail/WhatsApp para a equipe) ou coluna de status de pagamento; ver runbook |
+| Preços dos adicionais ficam em `mocks/addons.json` (versionado, lido no servidor) | Migrar para tabela no banco se a equipe precisar editá-los |
+| Cartão de crédito não tem integração real (fica `pending`) | Integrar checkout transparente/Checkout Pro com a mesma conferência de valor |
 | RLS só fecha após aplicar a migration (passos 1–5) | Seguir o rollout do README de migrations |
 | Lookup público por **e-mail** ainda permite descobrir nome e datas da reserva de quem tem o e-mail conhecido (agora mascarado e sem documentos) | Exigir código + e-mail juntos, ou link mágico por e-mail |
 | `/reserva/sucesso/[id]` mostra a visão pública para quem souber o ID (`res-` + 8 hex) | Token assinado na URL de sucesso |

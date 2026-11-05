@@ -21,6 +21,7 @@ import { bookingErrorMessage, classifyDbError } from '@/lib/bookingErrors';
 import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
 import { escapeLikePattern, normalizeBookingCode, normalizeEmail, parseBookingRef } from '@/lib/queryInput';
 import { toPublicReservation } from '@/lib/publicReservation';
+import { serverPricingCatalog } from '@/lib/pricingCatalog';
 import {
   createBooking,
   supabaseBookingRepository,
@@ -64,6 +65,12 @@ export async function createBookingAction(
         return { success: false, error: UNAUTHORIZED_MESSAGE };
       }
     }
+    // Canal manual (sem desconto PIX) e qualquer canal desconhecido: só equipe
+    if (payload.channel !== undefined && payload.channel !== 'web') {
+      if (payload.channel !== 'manual' || !(await isStaff())) {
+        return { success: false, error: UNAUTHORIZED_MESSAGE };
+      }
+    }
 
     const repo = isSupabaseConfigured()
       ? supabaseBookingRepository
@@ -73,6 +80,7 @@ export async function createBookingAction(
 
     return await createBooking(payload, {
       repo,
+      catalog: serverPricingCatalog,
       sendConfirmation: async (reservation) =>
         sendBookingConfirmationEmail(reservation, await getRoomByIdAsync(reservation.roomId)),
       revalidate: safeRevalidatePaths,

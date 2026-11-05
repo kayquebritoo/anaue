@@ -38,6 +38,8 @@ import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 type ServiceModule = typeof import('../lib/bookingService');
 type ErrorsModule = typeof import('../lib/bookingErrors');
 type Reservation = import('../types').Reservation;
+type Catalog = import('../lib/pricing').PricingCatalog;
+let catalog: Catalog;
 
 let svc: ServiceModule;
 let errs: ErrorsModule;
@@ -111,10 +113,6 @@ function bookingInput(overrides: Partial<import('../lib/bookingService').CreateB
     checkIn: '2027-03-10',
     checkOut: '2027-03-13',
     guests: 2,
-    totalPrice: 1950,
-    roomPrice: 1950,
-    addonsPrice: 0,
-    discountPrice: 0,
     guestName: 'Hóspede Teste',
     guestEmail: 'teste@example.com',
     paymentMethod: 'pix' as const,
@@ -128,6 +126,7 @@ function recordingDeps(repo: import('../lib/bookingService').BookingRepository |
     sent,
     deps: {
       repo,
+      catalog,
       sendConfirmation: async (r: Reservation) => {
         sent.push(r);
       },
@@ -164,6 +163,8 @@ const tick = () => new Promise((r) => setImmediate(r));
 
 before(async () => {
   svc = await import('../lib/bookingService');
+  // Modo mock: catálogo de preços do servidor lê os catálogos estáticos
+  catalog = (await import('../lib/pricingCatalog')).serverPricingCatalog;
   errs = await import('../lib/bookingErrors');
 });
 
@@ -376,6 +377,7 @@ describe('3 e 4. Falha de persistência: sem sucesso e sem e-mail', () => {
     const db = await createTestDb();
     const r = await svc.createBooking(bookingInput(), {
       repo: pgliteRepo(db),
+      catalog,
       sendConfirmation: async () => {
         throw new Error('SMTP fora');
       },

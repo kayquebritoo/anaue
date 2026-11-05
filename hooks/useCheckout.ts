@@ -272,6 +272,8 @@ export function useCheckout({
         billingAddress: guestData.requestInvoice ? guestData.billingAddress : null,
         invoiceStatus: guestData.requestInvoice ? 'pending' : 'exempt',
         paymentMethod,
+        // Cupom revalidado no servidor; totalPrice acima é só o valor exibido (conferido no servidor)
+        couponCode: appliedCoupon?.code ?? null,
         selectedAddons: [
           ...selectedAddons.map((a) => ({
             id: a.id,
@@ -337,6 +339,7 @@ export function useCheckout({
     selectedAddons,
     selectedExperiences,
     isExperienceMode,
+    appliedCoupon,
   ]);
 
   return {
