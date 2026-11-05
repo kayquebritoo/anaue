@@ -3,25 +3,35 @@
 Data: 2026-11-05 · Contexto: pousada de 5 quartos, reservas online com PIX
 (Mercado Pago), painel da equipe, dados pessoais de hóspedes.
 
-## 1. Falha do Preview na Vercel
+## 1. Falha do Preview na Vercel — CAUSA CONFIRMADA
 
-| Evidência | Fonte |
+Logs de build lidos na Vercel (acesso somente leitura autorizado em 2026-11-05):
+
+| Deploy | Commit | Erro no log |
+|---|---|---|
+| `dpl_GCukXX…` | 7f83ef1 | `@supabase/ssr: Your project's URL and API key are required` em `/admin/redefinir-senha` |
+| `dpl_Aqkb…` | bc9f06c | `DataUnavailableError: Supabase não configurado` em `/acomodacoes/[slug]` |
+| `dpl_HQCw…` | ee4aa0b | `[check-env] ERRO: faltam variáveis obrigatórias no ambiente "preview": NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY` |
+
+**Variáveis cadastradas no projeto `pms` da Vercel** (somente nomes/ambientes; valores não foram lidos):
+
+| Variável | Ambientes |
 |---|---|
-| Os 4 deploys de **Preview** do PR #1 falharam; **nunca houve um Preview antes** (todos os deploys anteriores são Production) | API de Deployments do GitHub |
-| Deploys de **Production** do `main` funcionam | idem |
-| Checkout limpo do PR (`npm ci` + build) **sem variáveis do Supabase** falha; com variáveis, compila | reprodução local |
-| O próprio `main`, **sem as variáveis**, também falha (`/admin/redefinir-senha` exige URL/chave do Supabase) | reprodução local |
-| Logs de build da Vercel | **não acessíveis**: a conexão não tem permissão no time `kayquebritoos-projects` |
+| `NEXT_PUBLIC_SUPABASE_URL` | **somente Production** |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **somente Production** |
+| `SUPABASE_SERVICE_ROLE_KEY`, `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `RESEND_API_KEY` | **não existem em nenhum ambiente** |
 
-**Conclusão:** o problema é **só do Preview** e a causa mais provável é o
-ambiente *Preview* sem `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-(as variáveis provavelmente foram criadas só para Production/Development).
-Não é o Supabase em si nem o código do PR. Confirmação definitiva: log de build
-(o novo `scripts/check-env.mjs` passa a imprimir exatamente quais variáveis
-faltam, só nomes, no início do build).
+**Causa:** o ambiente Preview não tem nenhuma variável — só ocorre no Preview
+(Production tem as duas do Supabase e publica normalmente). Não é falha do
+Supabase nem do código do PR.
 
-**Solução mais simples:** cadastrar as variáveis no ambiente **Preview**
-apontando para o **staging** (nunca para produção) e fazer *Redeploy*.
+**Solução:** cadastrar as variáveis do **staging** marcando somente *Preview*.
+
+**Achado colateral (produção atual):** sem `MP_ACCESS_TOKEN` e `RESEND_API_KEY` em
+Production, o código hoje publicado (`main`) mostra **QR Code PIX simulado** ao
+hóspede e **não envia e-mail** de confirmação. O PR corrige o PIX simulado
+(passa a exibir "PIX indisponível"), mas pagamento e e-mail reais exigem
+cadastrar essas variáveis em Production.
 
 ## 2. Arquitetura: manter Vercel + Supabase
 
