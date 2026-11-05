@@ -52,6 +52,10 @@ export interface PaymentStatusResponse {
   currency_id?: string;
   payment_method_id: string;
   date_approved: string | null;
+  date_of_expiration?: string;
+  point_of_interaction?: {
+    transaction_data?: { qr_code?: string; qr_code_base64?: string; ticket_url?: string; redirect_url?: string };
+  };
 }
 
 // ─── Criar Pagamento PIX ────────────────────────────────────
@@ -61,6 +65,8 @@ export interface CreatePixPaymentParams {
   description: string;
   email: string;
   externalReference: string;
+  /** Mesma chave → o MP devolve o mesmo pagamento (evita cobrança duplicada). */
+  idempotencyKey?: string;
 }
 
 export async function createPixPayment(
@@ -84,7 +90,7 @@ export async function createPixPayment(
   const response = await fetch(`${MP_BASE_URL}/payments`, {
     method: 'POST',
     // Chave de idempotência exigida pela API de pagamentos do Mercado Pago
-    headers: { ...headers(), 'X-Idempotency-Key': crypto.randomUUID() },
+    headers: { ...headers(), 'X-Idempotency-Key': params.idempotencyKey || crypto.randomUUID() },
     body: JSON.stringify(body),
   });
 

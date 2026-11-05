@@ -380,7 +380,7 @@ describe('Confirmação de pagamento confere o valor pago', () => {
   });
 
   test('pagamento não aprovado, moeda diferente, referência forjada ou inexistente', async () => {
-    for (const status of ['pending', 'in_process', 'rejected', 'cancelled']) {
+    for (const status of ['pending', 'in_process', 'authorized']) {
       assert.equal((await conf.confirmBookingFromPayment(pay({ status }), memoryRepo(pending()).repo, silentLogger)).outcome, 'not_approved', status);
     }
     assert.equal((await conf.confirmBookingFromPayment(pay({ currency_id: 'USD' }), memoryRepo(pending()).repo, silentLogger)).outcome, 'currency_mismatch');
@@ -570,10 +570,10 @@ describe('Camada de gateway de pagamento (preparada para 2º gateway)', () => {
     assert.equal(body.transaction_amount, 1852);
     assert.equal(body.external_reference, 'res-abc12345');
     assert.equal(body.notification_url, undefined, 'sem MP_NOTIFICATION_URL usa o webhook do painel');
-    assert.match(String(reqHeaders.at(-1)!['X-Idempotency-Key']), /^[0-9a-f-]{36}$/);
+    assert.equal(reqHeaders.at(-1)!['X-Idempotency-Key'], 'anaue-pix-res-abc12345-185200', 'chave determinística por reserva + valor');
 
     const snap = await mercadoPagoGateway.getPayment('777');
-    assert.deepEqual(snap, { id: 777, status: 'approved', transaction_amount: 1852, external_reference: 'res-abc12345', currency_id: 'BRL' });
+    assert.deepEqual(snap, { id: 777, status: 'approved', status_detail: null, transaction_amount: 1852, external_reference: 'res-abc12345', currency_id: 'BRL' });
     await assert.rejects(mercadoPagoGateway.getPayment('abc'));
   });
 

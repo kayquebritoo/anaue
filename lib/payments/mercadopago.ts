@@ -3,9 +3,27 @@
 // Adaptador Mercado Pago para o contrato PaymentGateway.
 // ============================================================
 
-import { createPixPayment, getPaymentStatus } from '@/lib/mercadopago';
+import { createPixPayment, getPaymentStatus, type PaymentStatusResponse } from '@/lib/mercadopago';
+import type { PaymentSnapshot } from '@/lib/paymentConfirmation';
 import { verifyMercadoPagoSignature } from '@/lib/mercadopagoSignature';
 import type { PaymentGateway } from '@/lib/payments/types';
+
+async function fetchPayment(providerPaymentId: string): Promise<PaymentStatusResponse> {
+  const id = Number(providerPaymentId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error('ID de pagamento Mercado Pago inválido.');
+  return getPaymentStatus(id);
+}
+
+function toSnapshot(p: PaymentStatusResponse): PaymentSnapshot {
+  return {
+    id: p.id,
+    status: p.status, // 'approved' = creditado
+    status_detail: p.status_detail ?? null,
+    transaction_amount: Number(p.transaction_amount),
+    external_reference: p.external_reference ?? null,
+    currency_id: p.currency_id ?? null,
+  };
+}
 
 export const mercadoPagoGateway: PaymentGateway = {
   id: 'mercadopago',
@@ -20,6 +38,8 @@ export const mercadoPagoGateway: PaymentGateway = {
       description: `Reserva Anauê — ${req.bookingCode}`,
       email: req.payerEmail,
       externalReference: req.bookingId,
+      // Determinística por reserva + valor: clique duplo/reenvio não gera 2 cobranças
+      idempotencyKey: `anaue-pix-${req.bookingId}-${Math.round(req.amount * 100)}`,
     });
     return {
       providerPaymentId: String(payment.id),
@@ -31,15 +51,21 @@ export const mercadoPagoGateway: PaymentGateway = {
   },
 
   async getPayment(providerPaymentId) {
-    const id = Number(providerPaymentId);
-    if (!Number.isInteger(id) || id <= 0) throw new Error('ID de pagamento Mercado Pago inválido.');
-    const p = await getPaymentStatus(id);
+    return toSnapshot(await fetchPayment(providerPaymentId));
+  },
+
+  async getPixCharge(providerPaymentId) {
+    const p = await fetchPayment(providerPaymentId);
+    const td = p.point_of_interaction?.transaction_data ?? {};
     return {
-      id: p.id,
-      status: p.status, // 'approved' = creditado
-      transaction_amount: Number(p.transaction_amount),
-      external_reference: p.external_reference ?? null,
-      currency_id: p.currency_id ?? null,
+      payment: toSnapshot(p),
+      charge: {
+        providerPaymentId: String(p.id),
+        qrCodeBase64: td.qr_code_base64 || '',
+        copiaECola: td.qr_code || '',
+        ticketUrl: td.ticket_url || td.redirect_url || '',
+        expiresAt: p.date_of_expiration,
+      },
     };
   },
 

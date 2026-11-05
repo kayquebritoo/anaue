@@ -46,5 +46,10 @@ export interface PaymentGateway {
    * quando o dinheiro foi efetivamente recebido; valor em reais; moeda.
    */
   getPayment(providerPaymentId: string): Promise<PaymentSnapshot>;
+  /**
+   * Dados de exibição do PIX (QR/copia-e-cola) obtidos NA API do gateway —
+   * nunca de parâmetros de URL — junto com o estado do pagamento.
+   */
+  getPixCharge(providerPaymentId: string): Promise<{ charge: PixCharge; payment: PaymentSnapshot }>;
   verifyWebhook(input: WebhookVerificationInput): WebhookVerification;
 }

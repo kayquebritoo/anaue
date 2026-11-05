@@ -28,6 +28,16 @@ export const supabaseConfirmationRepository: ConfirmationRepository = {
     if (error) throw new BookingDbError(error.message, error.code);
     return data?.length ?? 0;
   },
+  async markCancelledIfPending(id) {
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({ status: 'cancelled' })
+      .eq('id', id)
+      .eq('status', 'pending')
+      .select('id');
+    if (error) throw new BookingDbError(error.message, error.code);
+    return data?.length ?? 0;
+  },
 };
 
 /** Somente desenvolvimento/testes (ver lib/dataMode.ts). */
@@ -40,6 +50,12 @@ export const mockConfirmationRepository: ConfirmationRepository = {
     const r = mockData.getReservationById(id);
     if (!r || r.status !== 'pending') return 0;
     mockData.updateReservationStatus(id, 'confirmed');
+    return 1;
+  },
+  async markCancelledIfPending(id) {
+    const r = mockData.getReservationById(id);
+    if (!r || r.status !== 'pending') return 0;
+    mockData.updateReservationStatus(id, 'cancelled');
     return 1;
   },
 };

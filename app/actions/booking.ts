@@ -22,6 +22,7 @@ import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
 import { escapeLikePattern, normalizeBookingCode, normalizeEmail, parseBookingRef } from '@/lib/queryInput';
 import { toPublicReservation } from '@/lib/publicReservation';
 import { serverPricingCatalog } from '@/lib/pricingCatalog';
+import { isOnlineBookingEnabled, ONLINE_BOOKING_DISABLED_MESSAGE } from '@/lib/launchMode';
 import {
   createBooking,
   supabaseBookingRepository,
@@ -60,6 +61,15 @@ export async function createBookingAction(
   payload: CreateBookingInput
 ): Promise<BookingActionResult> {
   try {
+    // Pré-lançamento: o fluxo público não cria reservas. A reserva manual da
+    // equipe (canal 'manual', sessão validada) continua disponível no painel.
+    if (!isOnlineBookingEnabled()) {
+      const isStaffManual = payload.channel === 'manual' && (await isStaff());
+      if (!isStaffManual) {
+        return { success: false, error: ONLINE_BOOKING_DISABLED_MESSAGE };
+      }
+    }
+
     if (payload.status !== undefined && payload.status !== 'pending') {
       if (!VALID_STATUSES.includes(payload.status) || !(await isStaff())) {
         return { success: false, error: UNAUTHORIZED_MESSAGE };

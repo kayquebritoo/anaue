@@ -5,8 +5,7 @@
 // ============================================================
 
 import type { Reservation } from '@/types';
-
-const WHATSAPP_NUMBER = '5592998000000';
+import { getContactWhatsApp } from '@/lib/launchMode';
 
 function formatDateBR(iso: string): string {
   const [y, m, d] = iso.split('T')[0].split('-');
@@ -27,7 +26,12 @@ function formatCurrencyBRL(value: number): string {
 export function buildWhatsAppConfirmationLink(
   reservation: Reservation,
   roomName?: string,
-): string {
+): string | null {
+  // Número oficial vem de NEXT_PUBLIC_WHATSAPP_NUMBER; sem ele, não há link
+  // (antes apontava para um número fictício).
+  const number = getContactWhatsApp();
+  if (!number) return null;
+
   const lines = [
     `Olá! Acabei de realizar uma reserva no Anauê Amazônia. 🌿`,
     ``,
@@ -45,5 +49,5 @@ export function buildWhatsAppConfirmationLink(
   const message = lines.join('\n');
   const encoded = encodeURIComponent(message);
 
-  return `https://wa.me/${WHATSAPP_NUMBER}?text=${encoded}`;
+  return `https://wa.me/${number}?text=${encoded}`;
 }

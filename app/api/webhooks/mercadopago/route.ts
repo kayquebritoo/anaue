@@ -3,6 +3,7 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 import { isMockDataAllowed } from '@/lib/dataMode';
 import { mercadoPagoGateway } from '@/lib/payments/mercadopago';
 import { confirmBookingFromPayment } from '@/lib/paymentConfirmation';
+import { sendPaymentConfirmedEmail } from '@/lib/bookingNotifications';
 import { supabaseConfirmationRepository, mockConfirmationRepository } from '@/lib/paymentConfirmationRepo';
 
 /**
@@ -90,6 +91,11 @@ export async function POST(request: NextRequest) {
     }
     const result = await confirmBookingFromPayment(payment, repo);
     const bookingId = result.bookingId ?? null;
+
+    // E-mail de confirmação só após validação do pagamento no gateway
+    if (result.outcome === 'confirmed' && result.bookingId) {
+      await sendPaymentConfirmedEmail(result.bookingId);
+    }
 
     // Divergências respondem 200 (não adianta o MP reenviar) e ficam no log
     // para a equipe; erros de banco lançam e respondem 500 (MP reenvia).

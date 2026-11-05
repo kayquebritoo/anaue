@@ -20,6 +20,8 @@ export interface PaymentSnapshot {
   /** Gateway de origem (opcional; padrão mercadopago). */
   provider?: 'mercadopago' | 'pagbank';
   status: string;
+  /** Ex.: 'expired' (PIX vencido), 'accredited'. */
+  status_detail?: string | null;
   transaction_amount: number;
   external_reference: string | null;
   currency_id?: string | null;
@@ -36,6 +38,11 @@ export interface ConfirmationRepository {
   getBooking(id: string): Promise<ConfirmationBooking | null>;
   /** UPDATE ... SET status='confirmed' WHERE id=? AND status='pending'. Retorna linhas afetadas. Lança em erro. */
   markConfirmed(id: string): Promise<number>;
+  /**
+   * UPDATE ... SET status='cancelled' WHERE id=? AND status='pending'.
+   * Usado quando o PIX expira/é recusado: libera o quarto. Opcional.
+   */
+  markCancelledIfPending?(id: string): Promise<number>;
 }
 
 export type ConfirmationOutcome =
@@ -47,7 +54,9 @@ export type ConfirmationOutcome =
   | 'currency_mismatch'
   | 'amount_mismatch'
   | 'not_pending'
-  | 'payment_reversed';
+  | 'payment_reversed'
+  | 'payment_failed_cancelled'
+  | 'payment_failed';
 
 export interface ConfirmationResult {
   outcome: ConfirmationOutcome;
@@ -74,6 +83,25 @@ export async function confirmBookingFromPayment(
       );
     }
     return { outcome: 'payment_reversed', bookingId: reversedId, paid: Number(payment.transaction_amount), due: reversed.totalPrice };
+  }
+
+  // PIX expirado (status 'cancelled', detalhe 'expired'), cancelado ou recusado:
+  // reserva ainda pendente é cancelada para liberar o quarto.
+  if (payment.status === 'cancelled' || payment.status === 'rejected') {
+    const failedId = normalizeBookingId(payment.external_reference);
+    if (!failedId) return { outcome: 'invalid_reference' };
+    const failed = await repo.getBooking(failedId);
+    if (!failed) return { outcome: 'booking_not_found', bookingId: failedId };
+    if (failed.status === 'pending' && repo.markCancelledIfPending) {
+      const n = await repo.markCancelledIfPending(failedId);
+      if (n > 0) {
+        logger.warn(
+          `[Pagamento] Pagamento ${payment.id} ${payment.status}${payment.status_detail ? ` (${payment.status_detail})` : ''} — reserva ${failedId} cancelada e quarto liberado.`
+        );
+        return { outcome: 'payment_failed_cancelled', bookingId: failedId };
+      }
+    }
+    return { outcome: 'payment_failed', bookingId: failedId };
   }
 
   if (payment.status !== 'approved') return { outcome: 'not_approved' };

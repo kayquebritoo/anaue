@@ -44,11 +44,22 @@ export function getValidServiceRoleKey(raw = process.env.SUPABASE_SERVICE_ROLE_K
   return null;
 }
 
+const PRODUCTION_SUPABASE_REFS = ['yjtbwxjxhfkxrmdurgdu', ...(process.env.ANAUE_PRODUCTION_SUPABASE_REF || '').split(',').filter(Boolean)];
+
+export function isProductionSupabaseUrl(url: string): boolean {
+  return PRODUCTION_SUPABASE_REFS.some((ref) => url.includes(ref));
+}
+
 function createSupabaseClient(): SupabaseClient<Database> {
   const url = supabaseUrl || 'https://placeholder.supabase.co';
 
   if (typeof window !== 'undefined') {
     return createBrowserClient<Database>(url, supabaseAnonKey || 'placeholder-key');
+  }
+
+  // Preview/Development da Vercel jamais podem usar o banco de produção
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' && isProductionSupabaseUrl(url)) {
+    throw new Error(`[supabase] Ambiente "${process.env.VERCEL_ENV}" configurado com o banco de PRODUÇÃO. Use o projeto de staging.`);
   }
 
   const serviceKey = getValidServiceRoleKey();

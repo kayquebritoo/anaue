@@ -25,6 +25,8 @@ import { PaymentMethodSelector } from '@/components/checkout/PaymentMethodSelect
 import { CouponInput } from '@/components/checkout/CouponInput';
 import { AnimatedTotal } from '@/components/checkout/AnimatedTotal';
 import { StayEditor } from '@/components/checkout/StayEditor';
+import { BookingComingSoon } from '@/components/checkout/BookingComingSoon';
+import { isOnlineBookingEnabled } from '@/lib/launchMode';
 import type { Room, AddonExperience, Experience } from '@/types';
 
 // Esta página usa searchParams (runtime), então não é SSG
@@ -97,16 +99,10 @@ function CheckoutPageContent() {
           `Reserva Anauê — ${result.reservation.bookingCode}`
         );
 
-        if (pixResult.success && pixResult.qrCodeBase64) {
-          const pixParams = new URLSearchParams({
-            show_pix: 'true',
-            pix_paymentId: String(pixResult.paymentId),
-            pix_qrCode: pixResult.qrCodeBase64,
-            pix_copiaECola: pixResult.copiaECola || '',
-            pix_ticketUrl: pixResult.ticketUrl || '',
-            pix_expiresAt: pixResult.expiresAt || '',
-          });
-          router.push(`/reserva/sucesso/${result.reservation.id}?${pixParams.toString()}`);
+        if (pixResult.success && pixResult.paymentId) {
+          // Só o ID do pagamento vai na URL; o QR é buscado no servidor
+          // (gateway) e validado contra a reserva na tela de sucesso.
+          router.push(`/reserva/sucesso/${result.reservation.id}?pix=${encodeURIComponent(String(pixResult.paymentId))}`);
           return;
         }
       }
@@ -119,6 +115,11 @@ function CheckoutPageContent() {
       );
     }
   };
+
+  // ── Pré-lançamento: reservas online desabilitadas (bloqueio também no servidor) ──
+  if (!isOnlineBookingEnabled()) {
+    return <BookingComingSoon roomName={room?.name ?? null} />;
+  }
 
   // ── Tela de carregamento ──
   if (loading) {

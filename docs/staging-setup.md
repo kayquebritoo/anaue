@@ -17,14 +17,22 @@ Escolhido: **projeto Supabase separado no plano Free (US$ 0)** + Preview da Verc
 
 ---
 
-## Passo 0 — confirmar o motivo do build de preview (2 min) 👤
-1. Abrir <https://vercel.com/kayquebritoos-projects/pms/deployments>.
-2. Clicar no deploy com status **Error** do branch `fix/booking-integrity` (commit `d500163`).
-3. Aba **Building** / **Build Logs** → rolar até o erro vermelho.
-4. Se aparecer `Supabase não configurado` ou `Your project's URL and API key are required` → é falta de variável no Preview (resolvido no passo 3).
-   Outro erro → me envie só a mensagem do erro (não há segredo no log de build).
+## O que posso automatizar (com sua autorização) × o que exige você
 
-(Alternativa: autorizar meu acesso de leitura ao time na Vercel — eu gero o link na hora, ele expira em 10 min.)
+| Etapa | Quem | Como |
+|---|---|---|
+| Criar projeto `pms-staging` (Free, US$ 0) | 🤖 com autorização, ou 👤 passo 1 | integração Supabase (`create_project`) |
+| Aplicar schema + migrations + seed fictício no staging | 🤖 com autorização, ou 👤 passo 2 | integração Supabase, **somente no projeto de staging** |
+| Chave publicável do staging | 🤖 | integração Supabase (leitura) |
+| **Chave secreta do staging** | 👤 | painel (Project Settings → API Keys) — não exposta pela integração |
+| Usuários de teste no Auth | 👤 passo 3 | painel (senhas escolhidas por você) |
+| Variáveis do Preview na Vercel | 🤖 com autorização, ou 👤 passo 5 | integração Vercel (`create_project_env`, alvo **Preview**) |
+| Rodar `npm run test:staging` | 🤖 | após `.env.staging.local` existir |
+
+Proteções que impedem o Preview de usar produção: `check-env` **falha o build** de
+Preview/Development que aponte para o projeto `pms` (produção) e o cliente Supabase
+**recusa** essa combinação em tempo de execução; `test:staging` e `seed-staging.sql`
+também recusam produção.
 
 ## Passo 1 — criar o projeto de staging no Supabase (5 min) 👤
 1. <https://supabase.com/dashboard> → organização atual → **New project**.
@@ -42,7 +50,9 @@ No projeto **`pms-staging`** → **SQL Editor** → **New query**, colar e **Run
 2. `scripts/staging/00-diagnostico-somente-leitura.sql` (deve mostrar diag_a/b/c = 0).
 3. `supabase/migrations/20261105000000_booking_integrity.sql`.
 4. `supabase/migrations/20261105000100_rls_hardening.sql`.
-5. `scripts/staging/10-verificacao-pos-migration.sql` → todas as colunas `ok_*` = `true`
+5. `supabase/seed-staging.sql` — dados **fictícios** (5 reservas, 1 bloqueio, quarto `room-teste-pix` de R$ 2,00).
+   Aborta sozinho se encontrar reservas reais.
+6. `scripts/staging/10-verificacao-pos-migration.sql` → todas as colunas `ok_*` = `true`
    (exceto `ok_equipe_cadastrada`, que vira `true` no passo 3).
 
 ## Passo 3 — usuários de teste (3 min) 👤
@@ -64,11 +74,12 @@ No projeto **`pms-staging`** → **SQL Editor** → **New query**, colar e **Run
 
 ## Passo 5 — Preview da Vercel apontando para o staging (5 min) 👤
 <https://vercel.com/kayquebritoos-projects/pms/settings/environment-variables>
-1. Para `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY`:
+1. Hoje **nenhuma variável tem Preview marcado** (verificado). Para `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY`:
    - Se a variável existente tiver **Preview** marcado com valor de produção: **⋯ → Edit** → desmarcar **Preview** → **Save**.
    - **Add New** → mesma chave, valor do **staging**, marcar **somente Preview** → **Sensitive** → **Save**.
-2. **Deployments** → deploy do PR → **⋯ → Redeploy**.
-3. Abrir a URL do preview: home, acomodação, checkout e `/admin/login` com `equipe.teste@anaue.dev`.
+2. **Add New** → `NEXT_PUBLIC_ONLINE_BOOKING_ENABLED` = `true`, **somente Preview** (no staging as reservas ficam ligadas para teste; Production continua desligada).
+3. **Deployments** → deploy do PR → **⋯ → Redeploy**. O log deve mostrar `[check-env] ok`.
+4. Abrir a URL do preview: home, acomodação, checkout e `/admin/login` com `equipe.teste@anaue.dev`.
 
 ## O que o `npm run test:staging` valida
 Executa o código real do app contra o staging (PostgREST + Postgres reais):

@@ -31,15 +31,29 @@ const serviceKeyStatus = () => {
 };
 
 const required = ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'];
+const flag = (process.env.NEXT_PUBLIC_ONLINE_BOOKING_ENABLED || '').trim();
 const rows = [
   ...required.map((n) => [n, status(n), 'obrigatória']),
   ['SUPABASE_SERVICE_ROLE_KEY', serviceKeyStatus(), 'obrigatória antes da migration de RLS'],
   ['MP_ACCESS_TOKEN', status('MP_ACCESS_TOKEN'), 'necessária para PIX'],
   ['MP_WEBHOOK_SECRET', status('MP_WEBHOOK_SECRET'), 'recomendada (autentica o webhook)'],
+  ['RESEND_API_KEY', status('RESEND_API_KEY'), 'necessária para e-mails'],
+  ['NEXT_PUBLIC_ONLINE_BOOKING_ENABLED', flag === 'true' ? 'ok' : (flag || '(ausente)'), flag === 'true' ? 'reservas online LIGADAS' : 'reservas online DESLIGADAS (pré-lançamento)'],
 ];
 
 console.log(`\n[check-env] Ambiente Vercel: ${vercelEnv}`);
 for (const [name, st, note] of rows) console.log(`[check-env]   ${st === 'ok' ? '✓' : '✗'} ${name.padEnd(30)} ${st.padEnd(28)} ${note}`);
+
+// Preview/Development NUNCA podem apontar para o banco de produção
+const PRODUCTION_REFS = ['yjtbwxjxhfkxrmdurgdu', ...(process.env.ANAUE_PRODUCTION_SUPABASE_REF || '').split(',').filter(Boolean)];
+const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' && PRODUCTION_REFS.some((r) => supaUrl.includes(r))) {
+  console.error(
+    `\n[check-env] ERRO: o ambiente "${vercelEnv}" está apontando para o Supabase de PRODUÇÃO.\n` +
+      '[check-env] Troque as variáveis deste ambiente pelas do projeto de STAGING (Vercel → Settings → Environment Variables).\n'
+  );
+  process.exit(1);
+}
 
 const missing = required.filter((n) => status(n) !== 'ok');
 if (missing.length && !allowMock) {

@@ -12,8 +12,10 @@ import * as mockData from '@/lib/mockData';
 import { isStaff, UNAUTHORIZED_MESSAGE } from '@/lib/authz';
 import { normalizeBookingId } from '@/lib/queryInput';
 import { isIntegrationMockAllowed, isMockDataAllowed } from '@/lib/dataMode';
+import { isOnlineBookingEnabled, ONLINE_BOOKING_DISABLED_MESSAGE } from '@/lib/launchMode';
 import { confirmBookingFromPayment, type ConfirmationOutcome } from '@/lib/paymentConfirmation';
 import { supabaseConfirmationRepository, mockConfirmationRepository } from '@/lib/paymentConfirmationRepo';
+import { sendPaymentConfirmedEmail } from '@/lib/bookingNotifications';
 
 export interface CreatePixPaymentResult {
   success: boolean;
@@ -36,6 +38,11 @@ export async function createPixPaymentAction(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   description: string
 ): Promise<CreatePixPaymentResult> {
+  // Pré-lançamento: nenhuma cobrança é gerada pelo fluxo público
+  if (!isOnlineBookingEnabled()) {
+    return { success: false, error: ONLINE_BOOKING_DISABLED_MESSAGE };
+  }
+
   // Verificar se MP_ACCESS_TOKEN está configurado
   if (!process.env.MP_ACCESS_TOKEN) {
     // Em produção, nunca exibir QR Code PIX falso ao hóspede
@@ -47,18 +54,7 @@ export async function createPixPaymentAction(
     // Mesmo no mock, o valor vem da reserva gravada, não do navegador.
     const mockBooking = mockData.getReservationById(normalizeBookingId(bookingId) || '');
     if (!mockBooking) return { success: false, error: 'Reserva não encontrada para pagamento.' };
-    amount = mockBooking.totalPrice;
-    const mockQrCode = `00020126580014br.gov.bcb.pix0136${bookingId}@anaue.com.br5204000053039865${amount.toFixed(2)}5802BR5925ANAU AMAZONIA ECOLODGE6009SAO PAULO62070503***6304`;
-    const mockBase64 = generateMockQrCodeBase64();
-
-    return {
-      success: true,
-      paymentId: Date.now(),
-      qrCodeBase64: mockBase64,
-      copiaECola: mockQrCode,
-      ticketUrl: '#',
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-    };
+    return mockPixFor(mockBooking.id, mockBooking.totalPrice);
   }
 
   // Valor e e-mail vêm da reserva gravada — nunca do cliente (evita pagar
@@ -104,6 +100,77 @@ export async function createPixPaymentAction(
     // Detalhes do gateway ficam no log; o hóspede recebe mensagem segura
     console.error('[createPixPaymentAction] Falha no gateway:', error);
     return { success: false, error: 'Não foi possível gerar o PIX agora. Sua reserva foi registrada; tente novamente ou fale conosco.' };
+  }
+}
+
+/** PIX simulado — somente desenvolvimento (isIntegrationMockAllowed). */
+function mockPixFor(bookingId: string, amount: number): CreatePixPaymentResult {
+  return {
+    success: true,
+    paymentId: 1,
+    qrCodeBase64: generateMockQrCodeBase64(),
+    copiaECola: `00020126580014br.gov.bcb.pix0136${bookingId}@anaue.com.br5204000053039865${amount.toFixed(2)}5802BR5925ANAU AMAZONIA ECOLODGE6009SAO PAULO62070503***6304`,
+    ticketUrl: '#',
+    expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+  };
+}
+
+export interface PixDisplayResult extends CreatePixPaymentResult {
+  /** Estado do pagamento no gateway: 'pending' exibe o QR; demais não. */
+  paymentStatus?: string;
+}
+
+/**
+ * Dados do PIX para a tela de sucesso, buscados NO GATEWAY e vinculados à
+ * reserva. Substitui a leitura de QR/copia-e-cola de parâmetros da URL —
+ * que permitia montar um link no domínio oficial com a chave PIX de terceiros.
+ */
+export async function getPixPaymentForBookingAction(
+  bookingId: string,
+  paymentId: number
+): Promise<PixDisplayResult> {
+  if (!isOnlineBookingEnabled()) {
+    return { success: false, error: ONLINE_BOOKING_DISABLED_MESSAGE };
+  }
+  const safeId = normalizeBookingId(bookingId);
+  if (!safeId) return { success: false, error: 'Reserva inválida.' };
+
+  try {
+    if (!process.env.MP_ACCESS_TOKEN) {
+      if (!isIntegrationMockAllowed()) {
+        return { success: false, error: 'Pagamento PIX indisponível no momento.' };
+      }
+      const mockBooking = mockData.getReservationById(safeId);
+      if (!mockBooking || mockBooking.status !== 'pending') {
+        return { success: false, paymentStatus: mockBooking?.status, error: 'Não há PIX pendente para esta reserva.' };
+      }
+      return { ...mockPixFor(mockBooking.id, mockBooking.totalPrice), paymentStatus: 'pending' };
+    }
+
+    if (!Number.isInteger(paymentId) || paymentId <= 0) {
+      return { success: false, error: 'Pagamento inválido.' };
+    }
+    const { charge, payment } = await getActivePaymentGateway().getPixCharge(String(paymentId));
+    if (normalizeBookingId(payment.external_reference) !== safeId) {
+      return { success: false, error: 'Este pagamento não pertence a esta reserva.' };
+    }
+    if (payment.status !== 'pending') {
+      // Aprovado, expirado, recusado ou estornado: não exibe QR para pagamento
+      return { success: false, paymentStatus: payment.status };
+    }
+    return {
+      success: true,
+      paymentStatus: 'pending',
+      paymentId: Number(charge.providerPaymentId),
+      qrCodeBase64: charge.qrCodeBase64,
+      copiaECola: charge.copiaECola,
+      ticketUrl: charge.ticketUrl,
+      // MP sempre informa o vencimento do PIX; fallback conservador de 30 min
+      expiresAt: charge.expiresAt || new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    };
+  } catch (err) {
+    console.error('[getPixPaymentForBookingAction] Falha ao consultar PIX:', err);
+    return { success: false, error: 'Não foi possível carregar o PIX agora. Atualize a página em instantes.' };
   }
 }
 
@@ -180,6 +247,7 @@ export async function confirmBookingPayment(
       not_pending: 'A reserva não está mais pendente.',
     };
     const ok = r.outcome === 'confirmed' || r.outcome === 'already_confirmed';
+    if (r.outcome === 'confirmed') await sendPaymentConfirmedEmail(safeId);
     return { success: ok, outcome: r.outcome, error: ok ? undefined : messages[r.outcome] };
   } catch (err) {
     console.error('[confirmBookingPayment] Erro:', err);
