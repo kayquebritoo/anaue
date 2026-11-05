@@ -366,3 +366,15 @@ describe('Seed de staging (dados fictícios)', () => {
     await assert.rejects(db.exec(read('supabase/seed-staging.sql')), /ABORTADO/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+describe('Quarto sem fotos não derruba páginas', () => {
+  test('foto principal com fallback (galeria → imagem institucional)', async () => {
+    const { getRoomPrimaryImage, ROOM_IMAGE_FALLBACK } = await import('../lib/roomImages');
+    assert.deepEqual(getRoomPrimaryImage({ name: 'X', images: [] }), { url: ROOM_IMAGE_FALLBACK, alt: 'X' });
+    assert.deepEqual(getRoomPrimaryImage({ name: 'X', images: undefined as never }), { url: ROOM_IMAGE_FALLBACK, alt: 'X' });
+    assert.equal(getRoomPrimaryImage({ name: 'X', images: [], gallery_images: ['/g.webp'] }).url, '/g.webp');
+    assert.equal(getRoomPrimaryImage({ name: 'X', images: [{ url: '/a.webp', alt: '', isPrimary: false }, { url: '/b.webp', alt: 'B', isPrimary: true }] }).url, '/b.webp');
+    assert.equal(getRoomPrimaryImage({ name: 'X', images: [{ url: '', alt: '', isPrimary: true }] as never }).url, ROOM_IMAGE_FALLBACK);
+  });
+});

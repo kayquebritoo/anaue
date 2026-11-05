@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/Badge';
 import { AmenityIcon } from '@/components/ui/AmenityIcon';
 import { formatPrice } from '@/lib/mockData';
 import type { Room } from '@/types';
+import { getRoomPrimaryImage } from '@/lib/roomImages';
 
 const TYPE_LABEL: Record<Room['type'], string> = {
   bangalo: 'Bangalô',
@@ -43,7 +44,7 @@ export function VerticalRoomCard({
   queryString = '',
   availableForDates = null,
 }: VerticalRoomCardProps) {
-  const primaryImage = room.images.find((img) => img.isPrimary) ?? room.images[0];
+  const primaryImage = getRoomPrimaryImage(room);
   const isAvailable = availableForDates ?? room.isAvailable;
 
   return (
