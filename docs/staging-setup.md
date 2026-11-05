@@ -17,6 +17,17 @@ Escolhido: **projeto Supabase separado no plano Free (US$ 0)** + Preview da Verc
 
 ---
 
+## Estado do staging (atualizado 2026-11-05)
+| Item | Situação |
+|---|---|
+| Projeto `pms-staging` | ✅ criado (ref `ardsssyghkyknlhgwqnw`, us-west-1, plano Free, custo US$ 0) |
+| Schema base + catálogo | ✅ aplicados (mesmo estado da produção: RLS público, sem migrations) |
+| Teste de compatibilidade com o estado da produção | ✅ `npm run test:compat` 8/8 |
+| Variáveis do Preview na Vercel | ✅ `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (staging), `NEXT_PUBLIC_ONLINE_BOOKING_ENABLED=true` — **somente Preview** |
+| Migration de integridade, RLS e seed fictício | ⏳ aguardando sua aprovação no conector do Supabase (pede confirmação por conter `DROP … IF EXISTS`) |
+| Chave secreta do staging | ⏳ você (painel) — necessária antes da migration de RLS no Preview |
+| Usuários de teste | ⏳ você (passo 3) |
+
 ## O que posso automatizar (com sua autorização) × o que exige você
 
 | Etapa | Quem | Como |

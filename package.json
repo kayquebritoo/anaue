@@ -14,7 +14,8 @@
     "test:pricing": "tsx --test scripts/test-pricing.ts",
     "test:staging": "tsx --test scripts/test-staging.ts",
     "check-env": "node scripts/check-env.mjs",
-    "test:launch": "tsx --test scripts/test-launch.ts"
+    "test:launch": "tsx --test scripts/test-launch.ts",
+    "test:compat": "tsx --test scripts/test-compat.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

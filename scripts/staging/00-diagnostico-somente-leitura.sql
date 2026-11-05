@@ -43,6 +43,10 @@ SELECT
   (SELECT json_agg(json_build_object('tabela', tablename, 'politica', policyname, 'cmd', cmd, 'roles', roles))
      FROM pg_policies WHERE schemaname = 'public'
       AND tablename IN ('bookings','coupons','room_blocks','housekeeping'))   AS politicas_rls,
+  -- compatibilidade do código do PR #1: colunas usadas em bookings
+  (SELECT json_agg(c) FROM unnest(ARRAY['coupon_code','guest_document','tax_id','company_name','billing_address','invoice_status','invoice_number','invoice_issued_at','selected_addons']) AS c
+     WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = c)) AS colunas_ausentes,
   -- usuários de autenticação (quantos existem; quem será equipe)
   (SELECT count(*) FROM auth.users)                                         AS auth_users_total,
   (SELECT current_setting('server_version'))                                AS postgres_versao;

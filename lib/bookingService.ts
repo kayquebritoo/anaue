@@ -208,7 +208,8 @@ export async function createBooking(
     addons_price: quote.itemsSubtotal,
     discount_price: quote.pixDiscount + quote.couponDiscount,
     total_price: quote.total,
-    coupon_code: quote.couponCode,
+    // Só envia a coluna quando há cupom: compatível com bancos antigos sem coupon_code
+    ...(quote.couponCode ? { coupon_code: quote.couponCode } : {}),
     status: payload.status || 'pending',
     special_requests: payload.specialRequests?.trim() || null,
     payment_method: payload.paymentMethod,
