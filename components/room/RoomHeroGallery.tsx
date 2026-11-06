@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronLeft, Share2, Check, Sparkles, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import type { Room } from '@/types';
+import { getRoomPrimaryImage } from '@/lib/roomImages';
 
 interface RoomHeroGalleryProps {
   room: Room;
@@ -22,9 +23,8 @@ export function RoomHeroGallery({ room }: RoomHeroGalleryProps) {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [copied, setCopied] = useState(false);
 
-  const images = room.images && room.images.length > 0 ? room.images : [
-    { url: 'https://images.unsplash.com/photo-1540541338287-41700207dee6?w=1200&q=80', alt: room.name, isPrimary: true }
-  ];
+  const validImages = (room.images || []).filter((img) => img && img.url);
+  const images = validImages.length > 0 ? validImages : [{ ...getRoomPrimaryImage(room), isPrimary: true }];
 
   const currentImage = images[activeImageIndex] || images[0];
 

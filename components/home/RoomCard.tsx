@@ -12,6 +12,7 @@ import { Star, Users, BedDouble } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { formatPrice } from '@/lib/mockData';
 import type { Room } from '@/types';
+import { getRoomPrimaryImage } from '@/lib/roomImages';
 
 const TYPE_LABEL: Record<Room['type'], string> = {
   bangalo: 'Bangalô',
@@ -33,7 +34,7 @@ interface RoomCardProps {
 }
 
 export function RoomCard({ room, index }: RoomCardProps) {
-  const primaryImage = room.images.find((img) => img.isPrimary) ?? room.images[0];
+  const primaryImage = getRoomPrimaryImage(room);
 
   return (
     <motion.div

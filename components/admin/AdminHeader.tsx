@@ -6,7 +6,8 @@
 // ============================================================
 
 import { useState } from 'react';
-import { Plus, RefreshCw, LogOut } from 'lucide-react';
+import Link from 'next/link';
+import { Plus, RefreshCw, LogOut, Settings } from 'lucide-react';
 import { QuickReservationModal } from '@/components/admin/QuickReservationModal';
 import { logoutAction } from '@/app/actions/auth';
 
@@ -74,6 +75,16 @@ export function AdminHeader({ title, subtitle, onRefresh }: AdminHeaderProps) {
               <Plus className="w-4 h-4 text-white" />
               <span>Nova Reserva Manual</span>
             </button>
+
+            {/* Configurações (acesso também no celular) */}
+            <Link
+              href="/admin/configuracoes/pagamentos"
+              title="Configurações"
+              aria-label="Configurações"
+              className="p-2.5 rounded-2xl glass hover:bg-white/8 text-white/70 hover:text-white border border-white/10 transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+            </Link>
 
             {/* Botão de Logout */}
             <form action={logoutAction}>

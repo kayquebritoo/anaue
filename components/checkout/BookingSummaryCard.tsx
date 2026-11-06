@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { formatPrice } from '@/lib/mockData';
 import type { Room, AddonExperience, PaymentMethodType, Coupon } from '@/types';
 import type { SelectedExperience } from '@/components/checkout/ExperiencesSelector';
+import { getRoomPrimaryImage } from '@/lib/roomImages';
 
 interface BookingSummaryCardProps {
   room: Room;
@@ -47,7 +48,7 @@ export function BookingSummaryCard({
   totalPrice,
   paymentMethod,
 }: BookingSummaryCardProps) {
-  const primaryImage = room.images.find((img) => img.isPrimary) ?? room.images[0];
+  const primaryImage = getRoomPrimaryImage(room);
 
   return (
     <div className="glass-dark rounded-3xl p-5 sm:p-6 border border-white/10 shadow-2xl space-y-6">
